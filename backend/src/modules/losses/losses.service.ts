@@ -122,6 +122,7 @@ export class LossesService {
       .addSelect('product.name', 'productName')
       .addSelect('SUM(loss.quantity)', 'totalQuantity')
       .addSelect('SUM(loss.quantity * product.unitPrice)', 'totalFinancialLoss')
+      .addSelect('SUM(loss.quantity * product.costPrice)', 'totalCostLoss')
       .groupBy('product.id')
       .addGroupBy('product.name')
       .orderBy('"totalFinancialLoss"', 'DESC');
@@ -156,7 +157,12 @@ export class LossesService {
             previousMonth.totalFinancialLoss) *
           100;
 
-    return { currentMonth, previousMonth, financialVariationPercent };
+    const costVariationPercent =
+      previousMonth.totalCostLoss === 0
+        ? null
+        : ((currentMonth.totalCostLoss - previousMonth.totalCostLoss) / previousMonth.totalCostLoss) * 100;
+
+    return { currentMonth, previousMonth, financialVariationPercent, costVariationPercent };
   }
 
   private async sumRange(from: Date, to: Date) {
@@ -166,11 +172,13 @@ export class LossesService {
       .innerJoin(Product, 'product', 'product.id = loss.productId')
       .select('COALESCE(SUM(loss.quantity), 0)', 'totalQuantity')
       .addSelect('COALESCE(SUM(loss.quantity * product.unitPrice), 0)', 'totalFinancialLoss')
+      .addSelect('COALESCE(SUM(loss.quantity * product.costPrice), 0)', 'totalCostLoss')
       .where('loss.occurredAt >= :from AND loss.occurredAt < :to', { from, to })
-      .getRawOne<{ totalQuantity: string; totalFinancialLoss: string }>();
+      .getRawOne<{ totalQuantity: string; totalFinancialLoss: string; totalCostLoss: string }>();
     return {
       totalQuantity: Number(raw?.totalQuantity ?? 0),
       totalFinancialLoss: Number(raw?.totalFinancialLoss ?? 0),
+      totalCostLoss: Number(raw?.totalCostLoss ?? 0),
     };
   }
 
