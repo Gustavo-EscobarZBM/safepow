@@ -157,11 +157,17 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <KpiCard
-          label="Prejuízo total no mês"
+          label="Prejuízo total no mês (venda)"
           value={formatBRL(summary?.currentMonth.totalFinancialLoss ?? 0)}
           variationPercent={summary?.financialVariationPercent ?? undefined}
+        />
+        <KpiCard
+          label="Prejuízo de custo no mês"
+          value={formatBRL(summary?.currentMonth.totalCostLoss ?? 0)}
+          variationPercent={summary?.costVariationPercent ?? undefined}
+          hint="Valor real pago pelos itens perdidos"
         />
         <KpiCard
           label="Itens descartados no mês"
