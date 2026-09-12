@@ -9,7 +9,12 @@ services:
       POSTGRES_PASSWORD: postgres_admin_local_only
       POSTGRES_DB: inventory_saas
     ports:
-      - "5432:5432"
+      # 5433, não 5432: esta máquina tem um PostgreSQL nativo do Windows
+      # (serviço) ocupando a 5432 — conexões do host pra 5432 caem nele por
+      # engano, não no container. A comunicação entre containers (backend ->
+      # postgres) usa a porta interna 5432 normalmente, só o mapeamento pro
+      # host muda.
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # Cria automaticamente o role de runtime restrito na primeira inicialização

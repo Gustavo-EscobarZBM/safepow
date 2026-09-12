@@ -38,6 +38,11 @@ export class Product {
   @Column({ type: 'numeric', precision: 12, scale: 2, default: 0 })
   unitPrice: number;
 
+  // Preço de custo (o que a empresa pagou) — separado de unitPrice (preço de
+  // venda) para calcular o prejuízo de custo real nos relatórios.
+  @Column({ type: 'numeric', precision: 12, scale: 2, default: 0 })
+  costPrice: number;
+
   // Guarda o nome original da coluna do ERP do cliente para reaproveitar
   // o mapeamento nas próximas importações (Seção 5.4).
   @Column({ type: 'jsonb', nullable: true })
