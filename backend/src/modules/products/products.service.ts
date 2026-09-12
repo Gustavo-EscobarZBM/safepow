@@ -29,6 +29,7 @@ export class ProductsService {
       sku: dto.sku ?? null,
       name: dto.name,
       unitPrice: dto.unitPrice ?? 0,
+      costPrice: dto.costPrice ?? 0,
     });
     return manager.save(product);
   }
@@ -78,6 +79,7 @@ export class ProductsService {
     if (dto.name !== undefined) product.name = dto.name;
     if (dto.sku !== undefined) product.sku = dto.sku || null;
     if (dto.unitPrice !== undefined) product.unitPrice = dto.unitPrice;
+    if (dto.costPrice !== undefined) product.costPrice = dto.costPrice;
 
     return manager.save(product);
   }
