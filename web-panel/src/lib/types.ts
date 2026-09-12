@@ -13,6 +13,7 @@ export interface Product {
   sku: string | null;
   name: string;
   unitPrice: string | number;
+  costPrice: string | number;
   isActive: boolean;
 }
 
@@ -21,6 +22,7 @@ export interface UpdateProductInput {
   sku?: string;
   name?: string;
   unitPrice?: number;
+  costPrice?: number;
 }
 
 // Motivo/Local da perda deixaram de ser listas fixas — agora são catálogos
@@ -59,12 +61,14 @@ export interface LossByProductReportRow {
   productName: string;
   totalQuantity: string;
   totalFinancialLoss: string;
+  totalCostLoss: string;
 }
 
 export interface LossSummaryReport {
-  currentMonth: { totalQuantity: number; totalFinancialLoss: number };
-  previousMonth: { totalQuantity: number; totalFinancialLoss: number };
+  currentMonth: { totalQuantity: number; totalFinancialLoss: number; totalCostLoss: number };
+  previousMonth: { totalQuantity: number; totalFinancialLoss: number; totalCostLoss: number };
   financialVariationPercent: number | null;
+  costVariationPercent: number | null;
 }
 
 export interface LossByPeriodRow {

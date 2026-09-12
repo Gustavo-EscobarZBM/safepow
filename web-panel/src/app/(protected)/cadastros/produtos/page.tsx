@@ -31,11 +31,12 @@ export default function ProductsPage() {
   const [barcode, setBarcode] = useState('');
   const [name, setName] = useState('');
   const [unitPrice, setUnitPrice] = useState('');
+  const [costPrice, setCostPrice] = useState('');
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
 
   const [productToEdit, setProductToEdit] = useState<Product | null>(null);
-  const [editForm, setEditForm] = useState({ barcode: '', name: '', unitPrice: '' });
+  const [editForm, setEditForm] = useState({ barcode: '', name: '', unitPrice: '', costPrice: '' });
   const [editError, setEditError] = useState<string | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
 
@@ -79,10 +80,12 @@ export default function ProductsPage() {
         barcode,
         name,
         unitPrice: unitPrice ? Number(unitPrice) : undefined,
+        costPrice: costPrice ? Number(costPrice) : undefined,
       });
       setBarcode('');
       setName('');
       setUnitPrice('');
+      setCostPrice('');
       await loadProducts();
     } catch (e) {
       setFormError(e instanceof ApiError ? e.message : 'Erro ao cadastrar produto.');
@@ -97,6 +100,7 @@ export default function ProductsPage() {
       barcode: product.barcode,
       name: product.name,
       unitPrice: String(product.unitPrice ?? ''),
+      costPrice: String(product.costPrice ?? ''),
     });
     setEditError(null);
   }
@@ -111,6 +115,7 @@ export default function ProductsPage() {
         barcode: editForm.barcode,
         name: editForm.name,
         unitPrice: editForm.unitPrice ? Number(editForm.unitPrice) : undefined,
+        costPrice: editForm.costPrice ? Number(editForm.costPrice) : undefined,
       });
       setProductToEdit(null);
       await loadProducts();
@@ -212,7 +217,7 @@ export default function ProductsPage() {
 
       <Card>
         <CardContent className="pt-4">
-          <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-4">
             <div className="space-y-1.5">
               <Label>Código de barras</Label>
               <Input required value={barcode} onChange={(e) => setBarcode(e.target.value)} />
@@ -231,10 +236,20 @@ export default function ProductsPage() {
                 onChange={(e) => setUnitPrice(e.target.value)}
               />
             </div>
+            <div className="space-y-1.5">
+              <Label>Preço de custo (R$)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={costPrice}
+                onChange={(e) => setCostPrice(e.target.value)}
+              />
+            </div>
 
-            {formError && <p className="text-sm text-destructive sm:col-span-3">{formError}</p>}
+            {formError && <p className="text-sm text-destructive sm:col-span-4">{formError}</p>}
 
-            <div className="sm:col-span-3">
+            <div className="sm:col-span-4">
               <Button type="submit" disabled={submitting}>
                 {submitting ? 'Cadastrando...' : 'Cadastrar produto'}
               </Button>
@@ -334,19 +349,20 @@ export default function ProductsPage() {
               <TableHead>Nome</TableHead>
               <TableHead>Código de barras</TableHead>
               <TableHead>Preço unitário</TableHead>
+              <TableHead>Preço de custo</TableHead>
               <TableHead className="pr-6 text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
+                <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
                   Carregando...
                 </TableCell>
               </TableRow>
             ) : filteredProducts.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
+                <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
                   {products.length === 0
                     ? 'Nenhum produto cadastrado ainda.'
                     : 'Nenhum produto encontrado para essa busca.'}
@@ -359,6 +375,12 @@ export default function ProductsPage() {
                   <TableCell className="font-mono text-xs">{product.barcode}</TableCell>
                   <TableCell>
                     {Number(product.unitPrice).toLocaleString('pt-BR', {
+                      style: 'currency',
+                      currency: 'BRL',
+                    })}
+                  </TableCell>
+                  <TableCell>
+                    {Number(product.costPrice).toLocaleString('pt-BR', {
                       style: 'currency',
                       currency: 'BRL',
                     })}
@@ -430,6 +452,16 @@ export default function ProductsPage() {
                   min="0"
                   value={editForm.unitPrice}
                   onChange={(e) => setEditForm({ ...editForm, unitPrice: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Preço de custo (R$)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={editForm.costPrice}
+                  onChange={(e) => setEditForm({ ...editForm, costPrice: e.target.value })}
                 />
               </div>
             </div>
