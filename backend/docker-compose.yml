@@ -1,0 +1,95 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres_admin_local_only
+      POSTGRES_DB: inventory_saas
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Cria automaticamente o role de runtime restrito na primeira inicialização
+      # do volume (ver comentários no próprio arquivo) — Seção 1.2 do documento.
+      - ./docker/init-db:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "9000:9000"   # API S3-compatível
+      - "9001:9001"   # console web
+    volumes:
+      - minio_data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 minioadmin minioadmin123; do sleep 1; done;
+      mc mb --ignore-existing local/inventory-saas-uploads;
+      mc anonymous set download local/inventory-saas-uploads;
+      "
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  backend:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio:
+        condition: service_started
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: inventory_saas
+      DB_ADMIN_USER: postgres
+      DB_ADMIN_PASSWORD: postgres_admin_local_only
+      DB_APP_USER: inventory_saas_app
+      DB_APP_PASSWORD: change-me-app-role-password
+      DB_SSL: "false"
+      JWT_SECRET: troque-este-valor-por-um-segredo-forte-em-producao
+      JWT_EXPIRES_IN: 8h
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      STORAGE_ENDPOINT: http://minio:9000
+      STORAGE_REGION: us-east-1
+      STORAGE_BUCKET: inventory-saas-uploads
+      STORAGE_ACCESS_KEY: minioadmin
+      STORAGE_SECRET_KEY: minioadmin123
+      STORAGE_PUBLIC_BASE_URL: http://localhost:9000/inventory-saas-uploads
+      STORAGE_FORCE_PATH_STYLE: "true"
+      STRIPE_SECRET_KEY: ""
+      STRIPE_WEBHOOK_SECRET: ""
+      MASTER_ADMIN_EMAIL: master@seusistema.com.br
+      MASTER_ADMIN_PASSWORD: troque-esta-senha
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
+  minio_data:

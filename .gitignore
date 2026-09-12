@@ -1,0 +1,27 @@
+# Backend (NestJS)
+backend/node_modules/
+backend/dist/
+backend/.env
+backend/*.log
+
+# Web-panel (Next.js)
+web-panel/node_modules/
+web-panel/.next/
+web-panel/.env.local
+web-panel/tsconfig.tsbuildinfo
+web-panel/*.log
+
+# Mobile app (Flutter)
+mobile_app/.dart_tool/
+mobile_app/.flutter-plugins-dependencies
+mobile_app/build/
+mobile_app/.idea/
+mobile_app/*.iml
+# Gerado por `flutter create .` de forma consistente com o SDK de cada
+# máquina (ver mobile_app/README.md) — não faz parte do código-fonte do app.
+mobile_app/android/
+mobile_app/ios/
+
+# Geral
+.DS_Store
+Thumbs.db

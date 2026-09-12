@@ -1,0 +1,62 @@
+name: inventory_loss_app
+description: >
+  Aplicativo de operação do Sistema de Controle de Perdas de Estoque (SaaS).
+  Registro de perdas via leitura de código de barras ou digitação manual,
+  com funcionamento offline-first e sincronização automática (Seção 4 do
+  documento de arquitetura).
+publish_to: "none"
+version: 0.1.0
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # HTTP para a API do backend (Seção 2/3 do documento).
+  http: ^1.2.2
+  # MediaType para declarar o content-type correto no upload de foto (senão
+  # http.MultipartFile.fromPath cai em application/octet-stream). Já vinha
+  # como dependência transitiva do http; só promovendo para direta porque
+  # api_client.dart agora importa o pacote.
+  http_parser: ^4.1.2
+
+  # Banco local embarcado (Seção 4.1) — SQLite puro via sqflite, sem geração
+  # de código, para manter o projeto simples de compilar em qualquer máquina.
+  sqflite: ^2.4.1
+  path: ^1.9.0
+  path_provider: ^2.1.4
+
+  # Leitura de código de barras (funcionalidade 1 do documento).
+  mobile_scanner: ^5.2.3
+
+  # Upload opcional de foto do produto/ocorrência.
+  image_picker: ^1.1.2
+
+  # Detecção de conectividade para disparar a sincronização (Seção 4.1).
+  connectivity_plus: ^6.0.5
+
+  # Armazenamento seguro do token JWT (mais adequado que shared_preferences
+  # para credenciais — usa Keystore no Android e Keychain no iOS).
+  flutter_secure_storage: ^9.2.2
+
+  # Geração do clientGeneratedId usado para idempotência na sincronização
+  # offline (Seção 4.2 do documento — evita duplicar registros ao reenviar).
+  uuid: ^4.5.1
+
+  intl: ^0.19.0
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  # Implementação de sqflite em Dart puro (sem plugin de plataforma) — permite
+  # testar AppDatabase/repositórios em `flutter test` (Dart VM), sem emulador.
+  sqflite_common_ffi: ^2.3.4+4
+
+flutter:
+  uses-material-design: true
+  # assets:
+  #   - assets/

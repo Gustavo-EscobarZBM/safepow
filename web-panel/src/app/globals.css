@@ -1,0 +1,138 @@
+@import "tw-animate-css";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Identidade SAFEPOW (documento de marca no Canva, página "cores"/"fonte"):
+ * #032727 primária, #435757 secundária, branco. Os demais tokens (muted,
+ * accent, border...) são derivados dessa paleta para manter tudo na mesma
+ * família de cor em vez de cinzas neutros genéricos.
+ *
+ * Valores em canais RGB (espaço, sem "rgb()") de propósito: os componentes
+ * shadcn/ui usam modificadores de opacidade (bg-primary/80, ring-foreground/10
+ * etc.) que só funcionam quando o Tailwind consegue injetar o alpha via
+ * `rgb(var(--x) / <alpha-value>)` — ver mapeamento em tailwind.config.ts.
+ */
+@layer base {
+  :root {
+    --background: 255 255 255;
+    --foreground: 3 39 39;
+
+    --card: 255 255 255;
+    --card-foreground: 3 39 39;
+    --popover: 255 255 255;
+    --popover-foreground: 3 39 39;
+
+    --primary: 3 39 39;
+    --primary-foreground: 255 255 255;
+    --secondary: 67 87 87;
+    --secondary-foreground: 255 255 255;
+
+    --muted: 238 242 241;
+    --muted-foreground: 91 107 106;
+    --accent: 220 230 228;
+    --accent-foreground: 3 39 39;
+
+    --destructive: 220 38 38;
+    --destructive-foreground: 255 255 255;
+
+    --success: 22 163 74;
+    --success-foreground: 22 101 52;
+    --warning: 217 119 6;
+    --warning-foreground: 180 83 9;
+
+    --border: 226 232 231;
+    --input: 226 232 231;
+    --ring: 67 87 87;
+    --radius: 0.625rem;
+
+    /* Quicksand chega via next/font/google em layout.tsx (--font-sans).
+       Chunk Five é self-hosted por @fontsource/chunk-five (import de efeito
+       colateral em layout.tsx) — a família é um nome fixo, não precisa de
+       variável gerada. */
+    --font-display: 'Chunk Five', serif;
+
+    /* Paleta categórica dos gráficos — hues distintos, não variações de um só tom. */
+    --chart-1: 3 39 39;
+    --chart-2: 201 162 39;
+    --chart-3: 67 87 87;
+    --chart-4: 138 74 61;
+    --chart-5: 107 143 135;
+
+    --sidebar: 3 39 39;
+    --sidebar-foreground: 255 255 255;
+    --sidebar-primary: 67 87 87;
+    --sidebar-primary-foreground: 255 255 255;
+    --sidebar-accent: 20 71 71;
+    --sidebar-accent-foreground: 255 255 255;
+    --sidebar-border: 67 87 87;
+    --sidebar-ring: 67 87 87;
+  }
+
+  /*
+   * Modo escuro: mesma identidade (tons de #032727), só invertida — fundo
+   * escuro em vez de branco, tokens de destaque (primary/chart/etc) clareados
+   * para manter contraste em vez de simplesmente inverter a luminosidade.
+   * A sidebar já nasceu escura por identidade visual (mesmo no tema claro),
+   * então mantém os mesmos tokens nos dois modos.
+   */
+  :root.dark {
+    --background: 8 26 26;
+    --foreground: 230 238 236;
+
+    --card: 14 36 36;
+    --card-foreground: 230 238 236;
+    --popover: 14 36 36;
+    --popover-foreground: 230 238 236;
+
+    --primary: 111 168 158;
+    --primary-foreground: 6 20 20;
+    --secondary: 90 112 112;
+    --secondary-foreground: 255 255 255;
+
+    --muted: 26 48 48;
+    --muted-foreground: 154 172 170;
+    --accent: 34 58 58;
+    --accent-foreground: 230 238 236;
+
+    --destructive: 248 113 113;
+    --destructive-foreground: 20 10 10;
+
+    /*
+     * success/warning-foreground são usados como TEXTO sobre um fundo pintado
+     * clarinho (bg-success/15, bg-warning/25 — ver company-status-badge.tsx e
+     * alerts-card.tsx), nunca sobre um preenchimento sólido. No claro isso pede
+     * um tom escuro (lê bem sobre um fundo quase branco); no escuro é o
+     * oposto — o "fundo pintado" continua predominantemente escuro, então o
+     * texto precisa ser claro para não desaparecer.
+     */
+    --success: 74 222 128;
+    --success-foreground: 134 239 172;
+    --warning: 251 191 36;
+    --warning-foreground: 252 211 77;
+
+    --border: 40 62 62;
+    --input: 40 62 62;
+    --ring: 111 168 158;
+
+    --chart-1: 111 168 158;
+    --chart-2: 224 196 92;
+    --chart-3: 150 168 168;
+    --chart-4: 199 133 115;
+    --chart-5: 138 176 168;
+  }
+
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display;
+  }
+}

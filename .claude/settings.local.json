@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)"
+    ]
+  },
+  "skillOverrides": {
+    "web-design-guidelines": "name-only"
+  }
+}
