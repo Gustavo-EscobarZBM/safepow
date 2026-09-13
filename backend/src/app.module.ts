@@ -10,6 +10,7 @@ import { Company } from './modules/companies/company.entity';
 import { CompaniesModule } from './modules/companies/companies.module';
 import { ImportJob } from './modules/imports/import-job.entity';
 import { ImportsModule } from './modules/imports/imports.module';
+import { CompanyMonthlyRevenue } from './modules/company-revenue/company-monthly-revenue.entity';
 import { LossLocation } from './modules/loss-locations/loss-location.entity';
 import { LossLocationsModule } from './modules/loss-locations/loss-locations.module';
 import { LossReason } from './modules/loss-reasons/loss-reason.entity';
@@ -39,7 +40,7 @@ import { UsersModule } from './modules/users/users.module';
         password: config.get<string>('DB_APP_PASSWORD'),
         database: config.get<string>('DB_NAME'),
         ssl: config.get<string>('DB_SSL') === 'true' ? { rejectUnauthorized: false } : false,
-        entities: [Company, User, Product, Loss, ImportJob, LossReason, LossLocation],
+        entities: [Company, User, Product, Loss, ImportJob, LossReason, LossLocation, CompanyMonthlyRevenue],
         synchronize: false,
         logging: config.get<string>('NODE_ENV') === 'development' ? ['error', 'warn'] : ['error'],
       }),
