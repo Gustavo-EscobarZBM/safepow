@@ -56,6 +56,13 @@ export class Company {
   @Column({ type: 'timestamptz', nullable: true })
   lastManualUnlockAt: Date | null;
 
+  // Conferência de descarte (opcional, ativada pelo gerente) — spec seção 5.
+  @Column({ type: 'boolean', default: false })
+  lossVerificationEnabled: boolean;
+
+  @Column({ type: 'uuid', nullable: true })
+  lossVerifierId: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 

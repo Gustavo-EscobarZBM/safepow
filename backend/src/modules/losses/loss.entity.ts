@@ -86,6 +86,21 @@ export class Loss {
   @Column({ type: 'varchar', length: 500, nullable: true })
   imageUrl: string | null;
 
+  // Conferência de descarte (spec seção 5) — travado no momento da criação a
+  // partir de company.lossVerificationEnabled (ver LossesService.create).
+  @Column({ type: 'boolean', default: false })
+  requiresVerification: boolean;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  verifiedAt: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  verifiedByUserId: string | null;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'verifiedByUserId' })
+  verifiedBy: User | null;
+
   // Momento em que a perda ocorreu segundo o funcionário (pode ser anterior ao
   // momento de sincronização, já que o registro pode ter sido feito offline).
   @Column({ type: 'timestamptz' })
