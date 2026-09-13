@@ -11,6 +11,7 @@ import { CompaniesModule } from './modules/companies/companies.module';
 import { ImportJob } from './modules/imports/import-job.entity';
 import { ImportsModule } from './modules/imports/imports.module';
 import { CompanyMonthlyRevenue } from './modules/company-revenue/company-monthly-revenue.entity';
+import { CompanyRevenueModule } from './modules/company-revenue/company-revenue.module';
 import { LossLocation } from './modules/loss-locations/loss-location.entity';
 import { LossLocationsModule } from './modules/loss-locations/loss-locations.module';
 import { LossReason } from './modules/loss-reasons/loss-reason.entity';
@@ -77,6 +78,7 @@ import { UsersModule } from './modules/users/users.module';
     LossReasonsModule,
     LossLocationsModule,
     LossesModule,
+    CompanyRevenueModule,
     UsersModule,
     UploadsModule,
     ImportsModule,
