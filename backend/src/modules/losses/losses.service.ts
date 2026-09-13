@@ -11,6 +11,7 @@ import { QueryLossesDto } from './dto/query-losses.dto';
 import { UpdateLossDto } from './dto/update-loss.dto';
 import { Loss } from './loss.entity';
 import { computeLossAlerts, type LossAlert } from './losses-alerts';
+import { projectMonthEnd } from './losses-projection';
 
 @Injectable()
 export class LossesService {
@@ -162,7 +163,9 @@ export class LossesService {
         ? null
         : ((currentMonth.totalCostLoss - previousMonth.totalCostLoss) / previousMonth.totalCostLoss) * 100;
 
-    return { currentMonth, previousMonth, financialVariationPercent, costVariationPercent };
+    const projectedMonthEnd = projectMonthEnd(currentMonth, previousMonth, now);
+
+    return { currentMonth, previousMonth, financialVariationPercent, costVariationPercent, projectedMonthEnd };
   }
 
   private async sumRange(from: Date, to: Date) {
