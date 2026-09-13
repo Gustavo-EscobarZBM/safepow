@@ -10,6 +10,7 @@ import {
   Users,
   Building2,
   LogOut,
+  ShieldCheck,
   UserCog,
   type LucideIcon,
 } from 'lucide-react';
@@ -40,6 +41,7 @@ const MANAGER_LINKS: NavItem[] = [
     ],
   },
   { href: '/losses', label: 'Perdas', icon: AlertTriangle },
+  { href: '/conferencias', label: 'Conferências', icon: ShieldCheck },
   { href: '/users', label: 'Usuários', icon: Users },
 ];
 

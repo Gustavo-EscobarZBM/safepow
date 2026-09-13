@@ -92,6 +92,11 @@ export interface SuspiciousPatternEntry {
   reasons: string[];
 }
 
+export interface CompanySettings {
+  lossVerificationEnabled: boolean;
+  lossVerifierId: string | null;
+}
+
 export interface LossByPeriodRow {
   date: string;
   totalQuantity: string;
