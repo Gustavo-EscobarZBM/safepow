@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import { Between } from 'typeorm';
 import { getTenantContext, getTenantManager } from '../../common/tenant/tenant-storage';
+import { CompanyMonthlyRevenue } from '../company-revenue/company-monthly-revenue.entity';
 import { LossLocation } from '../loss-locations/loss-location.entity';
 import { LossReason } from '../loss-reasons/loss-reason.entity';
 import { Product } from '../products/product.entity';
@@ -12,6 +13,7 @@ import { UpdateLossDto } from './dto/update-loss.dto';
 import { Loss } from './loss.entity';
 import { computeLossAlerts, type LossAlert } from './losses-alerts';
 import { projectMonthEnd } from './losses-projection';
+import { computeShrinkageRate } from './losses-shrinkage';
 
 @Injectable()
 export class LossesService {
@@ -165,7 +167,23 @@ export class LossesService {
 
     const projectedMonthEnd = projectMonthEnd(currentMonth, previousMonth, now);
 
-    return { currentMonth, previousMonth, financialVariationPercent, costVariationPercent, projectedMonthEnd };
+    const manager = getTenantManager();
+    const revenue = await manager.findOne(CompanyMonthlyRevenue, {
+      where: { year: now.getFullYear(), month: now.getMonth() + 1 },
+    });
+    const shrinkageRate = computeShrinkageRate(
+      currentMonth.totalFinancialLoss,
+      revenue ? Number(revenue.revenueAmount) : null,
+    );
+
+    return {
+      currentMonth,
+      previousMonth,
+      financialVariationPercent,
+      costVariationPercent,
+      projectedMonthEnd,
+      shrinkageRate,
+    };
   }
 
   private async sumRange(from: Date, to: Date) {
