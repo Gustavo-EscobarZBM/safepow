@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../app_services.dart';
+import '../../data/models/auth_session.dart';
 import '../../data/models/loss_location.dart';
 import '../../data/models/loss_reason.dart';
 import '../../data/models/product.dart';
@@ -85,6 +86,43 @@ class _LossFormScreenState extends State<LossFormScreen> {
     // Dispara uma tentativa imediata (não bloqueia a UI se não houver rede —
     // o SyncQueueService trata isso internamente).
     AppServices.syncQueueService.trySyncPending();
+
+    if (!mounted) return;
+
+    // Lido do AuthSession (capturado no login, spec seção 5) — não é uma
+    // chamada de rede, por isso o aviso aparece mesmo offline, no mesmo
+    // momento "otimista" que o resto do registro local já usa.
+    final AuthSession? session = await AppServices.authRepository.currentSession();
+    if (session != null && session.lossVerificationEnabled) {
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Perda registrada'),
+          content: const Text(
+            'Esta empresa exige conferência de descarte. O registro foi encaminhado para o conferente confirmar.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                Navigator.of(context).popUntil((route) => route.isFirst);
+              },
+              child: const Text('Voltar à tela inicial'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                Navigator.of(context).pop(); // fecha o formulário, volta pro Scan
+              },
+              child: const Text('Registrar nova perda'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
