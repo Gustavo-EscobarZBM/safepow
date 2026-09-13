@@ -75,6 +75,14 @@ export interface LossSummaryReport {
     totalCostLoss: number;
     financialVariationPercent: number | null;
   };
+  shrinkageRate: number | null;
+}
+
+export interface CompanyMonthlyRevenue {
+  id: string;
+  year: number;
+  month: number;
+  revenueAmount: string | number;
 }
 
 export interface LossByPeriodRow {

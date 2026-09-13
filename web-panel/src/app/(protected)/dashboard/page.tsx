@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, Download, Printer, Search } from 'lucide-react';
 import { api, ApiError } from '@/lib/api-client';
 import type {
+  CompanyMonthlyRevenue,
   LossAlert,
   LossByLocationRow,
   LossByPeriodRow,
@@ -22,6 +23,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { cn } from '@/lib/utils';
 
 function formatBRL(value: number) {
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -52,6 +54,10 @@ export default function DashboardPage() {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [compositionView, setCompositionView] = useState<'reason' | 'location'>('reason');
   const [productQuery, setProductQuery] = useState('');
+  const now = useMemo(() => new Date(), []);
+  const [revenueInput, setRevenueInput] = useState('');
+  const [revenueSaving, setRevenueSaving] = useState(false);
+  const [revenueError, setRevenueError] = useState<string | null>(null);
 
   function buildQuery(fromValue: string, toValue: string) {
     const params = new URLSearchParams();
@@ -91,6 +97,10 @@ export default function DashboardPage() {
       .get<LossAlert[]>('losses/reports/alerts')
       .then(setAlerts)
       .catch((e: ApiError) => setError(e.message));
+    api
+      .get<CompanyMonthlyRevenue | null>(`company-revenue?year=${now.getFullYear()}&month=${now.getMonth() + 1}`)
+      .then((revenue) => setRevenueInput(revenue ? String(revenue.revenueAmount) : ''))
+      .catch(() => {});
     loadFilteredReports('', '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -125,6 +135,25 @@ export default function DashboardPage() {
     link.download = 'relatorio-perdas-safepow.csv';
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function saveRevenue() {
+    const amount = Number(revenueInput.replace(',', '.'));
+    if (!revenueInput || Number.isNaN(amount) || amount < 0) {
+      setRevenueError('Informe um valor válido.');
+      return;
+    }
+    setRevenueSaving(true);
+    setRevenueError(null);
+    try {
+      await api.put(`company-revenue/${now.getFullYear()}/${now.getMonth() + 1}`, { revenueAmount: amount });
+      const updatedSummary = await api.get<LossSummaryReport>('losses/reports/summary');
+      setSummary(updatedSummary);
+    } catch (e) {
+      setRevenueError(e instanceof ApiError ? e.message : 'Erro ao salvar faturamento.');
+    } finally {
+      setRevenueSaving(false);
+    }
   }
 
   const topProduct = byProduct.length > 0 ? byProduct[0].productName : '—';
@@ -177,6 +206,46 @@ export default function DashboardPage() {
         <KpiCard label="Produto mais perdido" value={topProduct} hint="No período filtrado abaixo" />
         <KpiCard label="Motivo mais comum" value={topReason} hint="No período filtrado abaixo" />
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Faturamento do mês e taxa de perda</CardTitle>
+          <CardDescription>
+            Informe o faturamento do mês corrente para ver a perda como percentual da receita — a métrica
+            padrão do varejo (faixa normal: 1–2%).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-end">
+          <div className="space-y-1.5">
+            <Label>Faturamento do mês (R$)</Label>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              className="w-48"
+              value={revenueInput}
+              onChange={(e) => setRevenueInput(e.target.value)}
+            />
+          </div>
+          <Button variant="outline" onClick={saveRevenue} disabled={revenueSaving}>
+            {revenueSaving ? 'Salvando...' : 'Salvar faturamento'}
+          </Button>
+          {revenueError && <p className="text-sm text-destructive">{revenueError}</p>}
+          {summary?.shrinkageRate !== null && summary?.shrinkageRate !== undefined && (
+            <div className="sm:ml-auto">
+              <p className="text-xs text-muted-foreground">Taxa de perda sobre faturamento</p>
+              <p
+                className={cn(
+                  'font-display text-2xl',
+                  summary.shrinkageRate > 2 ? 'text-destructive' : 'text-foreground',
+                )}
+              >
+                {summary.shrinkageRate.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {summary && summary.currentMonth.totalFinancialLoss > 0 && (
         <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-400">
