@@ -14,6 +14,7 @@ import { Loss } from './loss.entity';
 import { computeLossAlerts, type LossAlert } from './losses-alerts';
 import { projectMonthEnd } from './losses-projection';
 import { computeShrinkageRate } from './losses-shrinkage';
+import { computeSuspiciousPatterns, type SuspiciousPatternEntry } from './losses-suspicious-patterns';
 
 @Injectable()
 export class LossesService {
@@ -359,6 +360,29 @@ export class LossesService {
       recentTop3ByMonth: [top3CurrentMonth, top3PreviousMonth1, top3PreviousMonth2],
       now,
     });
+  }
+
+  /**
+   * Card "Padrões para revisar" do dashboard: cruza sinais já existentes por
+   * funcionário (losses-suspicious-patterns.ts) num score de 0 a 100 — não
+   * acusa nem bloqueia, só aponta onde vale a pena olhar com mais atenção.
+   */
+  async reportSuspiciousPatterns(): Promise<SuspiciousPatternEntry[]> {
+    const manager = getTenantManager();
+    const now = new Date();
+    const currentStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const previousStart = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+
+    const currentLosses = await manager.find(Loss, {
+      where: { occurredAt: Between(currentStart, now) },
+      relations: { product: true, reason: true, reportedBy: true },
+    });
+    const previousLosses = await manager.find(Loss, {
+      where: { occurredAt: Between(previousStart, currentStart) },
+      relations: { product: true },
+    });
+
+    return computeSuspiciousPatterns({ currentLosses, previousLosses });
   }
 
   private async topProductIdsInRange(from: Date, to: Date, limit: number): Promise<{ id: string; name: string }[]> {

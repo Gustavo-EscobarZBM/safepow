@@ -100,6 +100,13 @@ export class LossesController {
     return this.lossesService.reportAlerts();
   }
 
+  // Card "Padrões para revisar" do dashboard — score por funcionário em losses-suspicious-patterns.ts.
+  @Get('reports/suspicious-patterns')
+  @Roles(UserRole.MANAGER)
+  reportSuspiciousPatterns() {
+    return this.lossesService.reportSuspiciousPatterns();
+  }
+
   // Exportação de planilha (Seção 5.3) — o gerente usa isso para dar baixa
   // no ERP principal da empresa.
   @Get('export')
