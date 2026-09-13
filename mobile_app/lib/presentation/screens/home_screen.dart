@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../app_services.dart';
 import '../../core/network/api_client.dart';
+import '../../data/models/auth_session.dart';
 import 'login_screen.dart';
 import 'pending_sync_screen.dart';
+import 'pending_verifications_screen.dart';
 import 'profile_screen.dart';
 import 'scan_screen.dart';
 import 'subscription_blocked_screen.dart';
@@ -18,11 +20,19 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool _refreshingCatalog = false;
+  AuthSession? _session;
 
   @override
   void initState() {
     super.initState();
     AppServices.syncQueueService.addListener(_onSyncStateChanged);
+    _loadSession();
+  }
+
+  Future<void> _loadSession() async {
+    final session = await AppServices.authRepository.currentSession();
+    if (!mounted) return;
+    setState(() => _session = session);
   }
 
   @override
@@ -158,6 +168,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 label: Text(_refreshingCatalog ? 'Atualizando...' : 'Atualizar produtos'),
                 style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(56)),
               ),
+              if (_session != null && (_session!.role == 'manager' || _session!.isLossVerifier)) ...[
+                const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const PendingVerificationsScreen()),
+                  ),
+                  icon: const Icon(Icons.fact_check_outlined),
+                  label: const Text('Conferências pendentes'),
+                  style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(56)),
+                ),
+              ],
               if (pending + errors > 0) ...[
                 const SizedBox(height: 24),
                 Row(

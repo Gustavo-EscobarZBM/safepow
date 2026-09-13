@@ -4,6 +4,7 @@ import 'data/repositories/auth_repository.dart';
 import 'data/repositories/loss_location_repository.dart';
 import 'data/repositories/loss_reason_repository.dart';
 import 'data/repositories/loss_repository.dart';
+import 'data/repositories/loss_verification_repository.dart';
 import 'data/repositories/product_repository.dart';
 
 /// Instâncias únicas usadas pelas telas. Um projeto maior tende a evoluir
@@ -18,6 +19,8 @@ class AppServices {
   static final LossLocationRepository lossLocationRepository =
       LossLocationRepository(apiClient: apiClient);
   static final LossRepository lossRepository = LossRepository();
+  static final LossVerificationRepository lossVerificationRepository =
+      LossVerificationRepository(apiClient: apiClient);
   static final SyncQueueService syncQueueService = SyncQueueService(
     lossRepository: lossRepository,
     apiClient: apiClient,
