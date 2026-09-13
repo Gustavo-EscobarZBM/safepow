@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { DataSource, Repository } from 'typeorm';
+import { getTenantContext, getTenantManager } from '../../common/tenant/tenant-storage';
 import { LossLocation } from '../loss-locations/loss-location.entity';
 import { LossReason } from '../loss-reasons/loss-reason.entity';
 import { User, UserRole } from '../users/user.entity';
@@ -9,6 +10,7 @@ import { Company, CompanyStatus } from './company.entity';
 import { computeEffectiveStatus } from './company-status.util';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
+import { UpdateCompanySettingsDto } from './dto/update-company-settings.dto';
 
 const SALT_ROUNDS = 12;
 
@@ -87,6 +89,42 @@ export class CompaniesService {
 
       return company;
     });
+  }
+
+  async getMySettings(): Promise<{ lossVerificationEnabled: boolean; lossVerifierId: string | null }> {
+    const { companyId } = getTenantContext();
+    const manager = getTenantManager();
+    const company = await manager.findOne(Company, { where: { id: companyId! } });
+    if (!company) throw new NotFoundException('Empresa não encontrada.');
+    return { lossVerificationEnabled: company.lossVerificationEnabled, lossVerifierId: company.lossVerifierId };
+  }
+
+  /**
+   * Autoatendimento do gerente — diferente de update() (Painel Master, dados
+   * cadastrais/billing de qualquer empresa). Restrito aos dois campos da
+   * conferência de descarte.
+   */
+  async updateMySettings(
+    dto: UpdateCompanySettingsDto,
+  ): Promise<{ lossVerificationEnabled: boolean; lossVerifierId: string | null }> {
+    const { companyId } = getTenantContext();
+    const manager = getTenantManager();
+    const company = await manager.findOne(Company, { where: { id: companyId! } });
+    if (!company) throw new NotFoundException('Empresa não encontrada.');
+
+    if (dto.lossVerificationEnabled !== undefined) {
+      company.lossVerificationEnabled = dto.lossVerificationEnabled;
+    }
+    if (dto.lossVerifierId !== undefined) {
+      if (dto.lossVerifierId !== null) {
+        const verifier = await manager.findOne(User, { where: { id: dto.lossVerifierId } });
+        if (!verifier) throw new NotFoundException('Usuário conferente não encontrado.');
+      }
+      company.lossVerifierId = dto.lossVerifierId;
+    }
+
+    await manager.save(company);
+    return { lossVerificationEnabled: company.lossVerificationEnabled, lossVerifierId: company.lossVerifierId };
   }
 
   /**

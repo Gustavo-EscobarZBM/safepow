@@ -1,4 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
+import { tenantStorage } from '../../../common/tenant/tenant-storage';
+import { UserRole } from '../../users/user.entity';
 import { CompaniesService } from '../companies.service';
 import { CompanyStatus } from '../company.entity';
 
@@ -77,5 +79,65 @@ describe('CompaniesService.remove', () => {
   it('lança NotFoundException quando a empresa não existe', async () => {
     const { service } = makeService(null);
     await expect(service.remove('company-inexistente')).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('CompaniesService — configurações de conferência de descarte', () => {
+  const COMPANY_ID = 'company-1';
+
+  function runWithTenantContext<T>(manager: any, fn: () => Promise<T>): Promise<T> {
+    return tenantStorage.run({ userId: 'user-1', role: UserRole.MANAGER, companyId: COMPANY_ID, manager }, fn);
+  }
+
+  it('getMySettings retorna as configurações da própria empresa', async () => {
+    const manager = {
+      findOne: jest.fn().mockResolvedValue({ id: COMPANY_ID, lossVerificationEnabled: true, lossVerifierId: 'user-2' }),
+    };
+    const { service } = makeService(null);
+
+    const result = await runWithTenantContext(manager, () => service.getMySettings());
+
+    expect(result).toEqual({ lossVerificationEnabled: true, lossVerifierId: 'user-2' });
+  });
+
+  it('updateMySettings ativa a conferência e define o conferente', async () => {
+    const company = { id: COMPANY_ID, lossVerificationEnabled: false, lossVerifierId: null };
+    const manager = {
+      findOne: jest.fn().mockResolvedValueOnce(company).mockResolvedValueOnce({ id: 'user-2' }),
+      save: jest.fn().mockImplementation((c) => Promise.resolve(c)),
+    };
+    const { service } = makeService(null);
+
+    const result = await runWithTenantContext(manager, () =>
+      service.updateMySettings({ lossVerificationEnabled: true, lossVerifierId: 'user-2' }),
+    );
+
+    expect(result).toEqual({ lossVerificationEnabled: true, lossVerifierId: 'user-2' });
+  });
+
+  it('updateMySettings rejeita um conferente que não existe na empresa', async () => {
+    const company = { id: COMPANY_ID, lossVerificationEnabled: false, lossVerifierId: null };
+    const manager = {
+      findOne: jest.fn().mockResolvedValueOnce(company).mockResolvedValueOnce(null),
+      save: jest.fn(),
+    };
+    const { service } = makeService(null);
+
+    await expect(
+      runWithTenantContext(manager, () => service.updateMySettings({ lossVerifierId: 'user-inexistente' })),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('updateMySettings permite limpar o conferente enviando null', async () => {
+    const company = { id: COMPANY_ID, lossVerificationEnabled: true, lossVerifierId: 'user-2' };
+    const manager = {
+      findOne: jest.fn().mockResolvedValueOnce(company),
+      save: jest.fn().mockImplementation((c) => Promise.resolve(c)),
+    };
+    const { service } = makeService(null);
+
+    const result = await runWithTenantContext(manager, () => service.updateMySettings({ lossVerifierId: null }));
+
+    expect(result.lossVerifierId).toBeNull();
   });
 });
