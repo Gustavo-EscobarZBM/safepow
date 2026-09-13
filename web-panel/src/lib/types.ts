@@ -85,6 +85,13 @@ export interface CompanyMonthlyRevenue {
   revenueAmount: string | number;
 }
 
+export interface SuspiciousPatternEntry {
+  employeeId: string;
+  employeeName: string;
+  score: number;
+  reasons: string[];
+}
+
 export interface LossByPeriodRow {
   date: string;
   totalQuantity: string;

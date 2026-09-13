@@ -11,11 +11,13 @@ import type {
   LossByProductReportRow,
   LossByReasonRow,
   LossSummaryReport,
+  SuspiciousPatternEntry,
 } from '@/lib/types';
 import { AlertsCard } from '@/components/alerts-card';
 import { KpiCard } from '@/components/kpi-card';
 import { LossesTrendChart } from '@/components/losses-trend-chart';
 import { LossesBreakdownChart } from '@/components/losses-breakdown-chart';
+import { SuspiciousPatternsCard } from '@/components/suspicious-patterns-card';
 import { TopOffendersTable } from '@/components/top-offenders-table';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -43,6 +45,7 @@ const QUICK_PERIODS = [
 export default function DashboardPage() {
   const [summary, setSummary] = useState<LossSummaryReport | null>(null);
   const [alerts, setAlerts] = useState<LossAlert[]>([]);
+  const [suspiciousPatterns, setSuspiciousPatterns] = useState<SuspiciousPatternEntry[]>([]);
   const [byProduct, setByProduct] = useState<LossByProductReportRow[]>([]);
   const [byPeriod, setByPeriod] = useState<LossByPeriodRow[]>([]);
   const [byReason, setByReason] = useState<LossByReasonRow[]>([]);
@@ -96,6 +99,10 @@ export default function DashboardPage() {
     api
       .get<LossAlert[]>('losses/reports/alerts')
       .then(setAlerts)
+      .catch((e: ApiError) => setError(e.message));
+    api
+      .get<SuspiciousPatternEntry[]>('losses/reports/suspicious-patterns')
+      .then(setSuspiciousPatterns)
       .catch((e: ApiError) => setError(e.message));
     api
       .get<CompanyMonthlyRevenue | null>(`company-revenue?year=${now.getFullYear()}&month=${now.getMonth() + 1}`)
@@ -395,6 +402,8 @@ export default function DashboardPage() {
 
         <AlertsCard alerts={alerts} />
       </div>
+
+      <SuspiciousPatternsCard entries={suspiciousPatterns} />
     </div>
   );
 }
