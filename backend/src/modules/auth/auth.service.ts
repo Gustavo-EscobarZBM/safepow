@@ -45,6 +45,8 @@ export class AuthService {
 
     let companyStatus: CompanyStatus | undefined;
     let companyDueDate: Date | null | undefined;
+    let lossVerificationEnabled = false;
+    let isLossVerifier = false;
 
     // MASTER_ADMIN não pertence a uma empresa — só empresas clientes (gerente/
     // funcionário) passam pela checagem de mensalidade no login (item 4 do
@@ -75,6 +77,8 @@ export class AuthService {
 
       companyStatus = effective;
       companyDueDate = company.currentPeriodEnd;
+      lossVerificationEnabled = company.lossVerificationEnabled;
+      isLossVerifier = company.lossVerifierId === user.id;
     }
 
     const payload = { sub: user.id, role: user.role, companyId: user.companyId };
@@ -90,6 +94,8 @@ export class AuthService {
       },
       companyStatus,
       companyDueDate,
+      lossVerificationEnabled,
+      isLossVerifier,
     };
   }
 }
