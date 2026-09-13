@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { tenantStorage } from '../../common/tenant/tenant-storage';
 import { UserRole } from '../users/user.entity';
 import { LossesService } from './losses.service';
@@ -155,5 +155,147 @@ describe('LossesService.create (idempotência offline — Seção 4.2)', () => {
         }),
       ),
     ).rejects.toThrow(NotFoundException);
+  });
+
+  it('grava requiresVerification=true quando a empresa tem a conferência de descarte ativada', async () => {
+    const manager = {
+      findOne: jest.fn(),
+      create: jest.fn().mockImplementation((_entity, data) => data),
+      save: jest.fn().mockImplementation((data) => Promise.resolve({ id: 'loss-1', ...data })),
+    };
+    manager.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: PRODUCT_ID })
+      .mockResolvedValueOnce({ id: REASON_ID })
+      .mockResolvedValueOnce({ id: LOCATION_ID })
+      .mockResolvedValueOnce({ id: COMPANY_ID, lossVerificationEnabled: true });
+
+    const service = new LossesService();
+
+    const result = await runWithTenantContext(manager, () =>
+      service.create({
+        clientGeneratedId: CLIENT_GENERATED_ID,
+        productId: PRODUCT_ID,
+        locationId: LOCATION_ID,
+        reasonId: REASON_ID,
+        description: 'Teste',
+        occurredAt: new Date().toISOString(),
+      }),
+    );
+
+    expect(result.requiresVerification).toBe(true);
+  });
+
+  it('grava requiresVerification=false quando a empresa não tem a conferência ativada', async () => {
+    const manager = {
+      findOne: jest.fn(),
+      create: jest.fn().mockImplementation((_entity, data) => data),
+      save: jest.fn().mockImplementation((data) => Promise.resolve({ id: 'loss-1', ...data })),
+    };
+    manager.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: PRODUCT_ID })
+      .mockResolvedValueOnce({ id: REASON_ID })
+      .mockResolvedValueOnce({ id: LOCATION_ID })
+      .mockResolvedValueOnce({ id: COMPANY_ID, lossVerificationEnabled: false });
+
+    const service = new LossesService();
+
+    const result = await runWithTenantContext(manager, () =>
+      service.create({
+        clientGeneratedId: CLIENT_GENERATED_ID,
+        productId: PRODUCT_ID,
+        locationId: LOCATION_ID,
+        reasonId: REASON_ID,
+        description: 'Teste',
+        occurredAt: new Date().toISOString(),
+      }),
+    );
+
+    expect(result.requiresVerification).toBe(false);
+  });
+});
+
+function runAs<T>(role: UserRole, userId: string, manager: any, fn: () => Promise<T>): Promise<T> {
+  return tenantStorage.run({ userId, role, companyId: COMPANY_ID, manager }, fn);
+}
+
+describe('LossesService.findPendingVerification / verify (conferência de descarte)', () => {
+  it('MANAGER pode listar as pendências de conferência', async () => {
+    const manager = { find: jest.fn().mockResolvedValue([{ id: 'loss-1' }]) };
+    const service = new LossesService();
+
+    const result = await runAs(UserRole.MANAGER, 'manager-1', manager, () => service.findPendingVerification());
+
+    expect(result).toEqual([{ id: 'loss-1' }]);
+  });
+
+  it('o funcionário designado como conferente pode listar as pendências', async () => {
+    const manager = {
+      find: jest.fn().mockResolvedValue([{ id: 'loss-1' }]),
+      findOne: jest.fn().mockResolvedValue({ id: COMPANY_ID, lossVerifierId: 'emp-verificador' }),
+    };
+    const service = new LossesService();
+
+    const result = await runAs(UserRole.EMPLOYEE, 'emp-verificador', manager, () =>
+      service.findPendingVerification(),
+    );
+
+    expect(result).toEqual([{ id: 'loss-1' }]);
+  });
+
+  it('um funcionário que não é o conferente designado não pode listar as pendências', async () => {
+    const manager = {
+      find: jest.fn(),
+      findOne: jest.fn().mockResolvedValue({ id: COMPANY_ID, lossVerifierId: 'emp-verificador' }),
+    };
+    const service = new LossesService();
+
+    await expect(
+      runAs(UserRole.EMPLOYEE, 'outro-funcionario', manager, () => service.findPendingVerification()),
+    ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('verify marca verifiedAt e verifiedByUserId quando quem confirma é MANAGER', async () => {
+    const loss = { id: 'loss-1', requiresVerification: true, verifiedAt: null, verifiedByUserId: null };
+    const manager = {
+      findOne: jest.fn().mockResolvedValue(loss),
+      save: jest.fn().mockImplementation((l) => Promise.resolve(l)),
+    };
+    const service = new LossesService();
+
+    const result = await runAs(UserRole.MANAGER, 'manager-1', manager, () => service.verify('loss-1'));
+
+    expect(result.verifiedByUserId).toBe('manager-1');
+    expect(result.verifiedAt).toBeInstanceOf(Date);
+  });
+
+  it('verify lança NotFoundException quando a perda não existe', async () => {
+    const manager = { findOne: jest.fn().mockResolvedValue(null) };
+    const service = new LossesService();
+
+    await expect(
+      runAs(UserRole.MANAGER, 'manager-1', manager, () => service.verify('id-invalido')),
+    ).rejects.toThrow(NotFoundException);
+  });
+
+  it('verify lança ConflictException quando a perda já foi conferida', async () => {
+    const loss = { id: 'loss-1', requiresVerification: true, verifiedAt: new Date() };
+    const manager = { findOne: jest.fn().mockResolvedValue(loss) };
+    const service = new LossesService();
+
+    await expect(runAs(UserRole.MANAGER, 'manager-1', manager, () => service.verify('loss-1'))).rejects.toThrow(
+      ConflictException,
+    );
+  });
+
+  it('verify lança BadRequestException quando a perda não requer conferência', async () => {
+    const loss = { id: 'loss-1', requiresVerification: false, verifiedAt: null };
+    const manager = { findOne: jest.fn().mockResolvedValue(loss) };
+    const service = new LossesService();
+
+    await expect(runAs(UserRole.MANAGER, 'manager-1', manager, () => service.verify('loss-1'))).rejects.toThrow(
+      BadRequestException,
+    );
   });
 });

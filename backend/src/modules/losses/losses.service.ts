@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
-import { Between } from 'typeorm';
+import { Between, IsNull } from 'typeorm';
 import { getTenantContext, getTenantManager } from '../../common/tenant/tenant-storage';
+import { Company } from '../companies/company.entity';
 import { CompanyMonthlyRevenue } from '../company-revenue/company-monthly-revenue.entity';
 import { LossLocation } from '../loss-locations/loss-location.entity';
 import { LossReason } from '../loss-reasons/loss-reason.entity';
@@ -42,6 +43,8 @@ export class LossesService {
     const location = await manager.findOne(LossLocation, { where: { id: dto.locationId } });
     if (!location) throw new NotFoundException('Local informado não existe para esta empresa.');
 
+    const company = await manager.findOne(Company, { where: { id: companyId! } });
+
     const loss = manager.create(Loss, {
       companyId: companyId!,
       clientGeneratedId: dto.clientGeneratedId,
@@ -54,6 +57,7 @@ export class LossesService {
       imageUrl: dto.imageUrl ?? null,
       occurredAt: new Date(dto.occurredAt),
       source: dto.source ?? null,
+      requiresVerification: company?.lossVerificationEnabled ?? false,
     });
     return manager.save(loss);
   }
@@ -383,6 +387,49 @@ export class LossesService {
     });
 
     return computeSuspiciousPatterns({ currentLosses, previousLosses });
+  }
+
+  /**
+   * Card "Conferências pendentes": lista perdas com requiresVerification=true
+   * e ainda não conferidas. Acesso: MANAGER da empresa OU o funcionário
+   * designado como lossVerifierId — por isso a checagem não é só @Roles no
+   * controller (ver assertCanManageVerification).
+   */
+  async findPendingVerification(): Promise<Loss[]> {
+    await this.assertCanManageVerification();
+    const manager = getTenantManager();
+    return manager.find(Loss, {
+      where: { requiresVerification: true, verifiedAt: IsNull() },
+      relations: { product: true, reportedBy: true, reason: true, location: true },
+      order: { occurredAt: 'ASC' },
+    });
+  }
+
+  /** Confirma a conferência de uma perda pendente — mesma regra de acesso de findPendingVerification. */
+  async verify(id: string): Promise<Loss> {
+    await this.assertCanManageVerification();
+    const { userId } = getTenantContext();
+    const manager = getTenantManager();
+
+    const loss = await manager.findOne(Loss, { where: { id } });
+    if (!loss) throw new NotFoundException('Perda não encontrada.');
+    if (!loss.requiresVerification) throw new BadRequestException('Esta perda não requer conferência.');
+    if (loss.verifiedAt) throw new ConflictException('Esta perda já foi conferida.');
+
+    loss.verifiedAt = new Date();
+    loss.verifiedByUserId = userId;
+    return manager.save(loss);
+  }
+
+  private async assertCanManageVerification(): Promise<void> {
+    const { role, userId, companyId } = getTenantContext();
+    if (role === UserRole.MANAGER) return;
+
+    const manager = getTenantManager();
+    const company = await manager.findOne(Company, { where: { id: companyId! } });
+    if (company?.lossVerifierId === userId) return;
+
+    throw new ForbiddenException('Você não tem permissão para acessar conferências de descarte.');
   }
 
   private async topProductIdsInRange(from: Date, to: Date, limit: number): Promise<{ id: string; name: string }[]> {

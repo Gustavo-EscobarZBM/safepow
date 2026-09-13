@@ -107,6 +107,20 @@ export class LossesController {
     return this.lossesService.reportSuspiciousPatterns();
   }
 
+  // Card "Conferências pendentes" — acesso: MANAGER ou o funcionário
+  // designado como conferente (checado dentro do service, não só por papel).
+  @Get('pending-verification')
+  @Roles(UserRole.MANAGER, UserRole.EMPLOYEE)
+  findPendingVerification() {
+    return this.lossesService.findPendingVerification();
+  }
+
+  @Patch(':id/verify')
+  @Roles(UserRole.MANAGER, UserRole.EMPLOYEE)
+  verify(@Param('id', ParseUUIDPipe) id: string) {
+    return this.lossesService.verify(id);
+  }
+
   // Exportação de planilha (Seção 5.3) — o gerente usa isso para dar baixa
   // no ERP principal da empresa.
   @Get('export')
