@@ -178,6 +178,25 @@ export default function DashboardPage() {
         <KpiCard label="Motivo mais comum" value={topReason} hint="No período filtrado abaixo" />
       </div>
 
+      {summary && summary.currentMonth.totalFinancialLoss > 0 && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-400">
+          No ritmo atual, você deve fechar o mês com prejuízo de{' '}
+          <strong>{formatBRL(summary.projectedMonthEnd.totalFinancialLoss)}</strong>
+          {summary.projectedMonthEnd.financialVariationPercent !== null && (
+            <>
+              {' '}
+              (
+              {summary.projectedMonthEnd.financialVariationPercent > 0 ? '+' : ''}
+              {summary.projectedMonthEnd.financialVariationPercent.toLocaleString('pt-BR', {
+                maximumFractionDigits: 1,
+              })}
+              % vs. mês anterior)
+            </>
+          )}
+          .
+        </div>
+      )}
+
       <Card>
         <CardContent className="flex flex-col gap-4 lg:flex-row lg:items-end">
           <div className="space-y-1.5">

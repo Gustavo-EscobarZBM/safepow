@@ -69,6 +69,12 @@ export interface LossSummaryReport {
   previousMonth: { totalQuantity: number; totalFinancialLoss: number; totalCostLoss: number };
   financialVariationPercent: number | null;
   costVariationPercent: number | null;
+  projectedMonthEnd: {
+    totalQuantity: number;
+    totalFinancialLoss: number;
+    totalCostLoss: number;
+    financialVariationPercent: number | null;
+  };
 }
 
 export interface LossByPeriodRow {
