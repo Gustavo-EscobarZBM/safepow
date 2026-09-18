@@ -99,11 +99,12 @@ export function Nav({ user }: { user: SessionUser }) {
                         <Link
                           key={child.href}
                           href={child.href}
+                          aria-current={active ? 'page' : undefined}
                           className={cn(
-                            'rounded-lg px-3 py-2 text-sm transition-colors',
+                            'rounded-lg border-l-2 px-3 py-2 text-sm transition-colors',
                             active
-                              ? 'bg-sidebar-primary font-medium text-sidebar-primary-foreground'
-                              : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground',
+                              ? 'border-l-sidebar-primary-foreground bg-sidebar-accent font-medium text-sidebar-foreground'
+                              : 'border-l-transparent text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground',
                           )}
                         >
                           {child.label}
@@ -121,11 +122,12 @@ export function Nav({ user }: { user: SessionUser }) {
               <Link
                 key={link.href}
                 href={link.href}
+                aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm transition-colors',
+                  'flex items-center gap-2.5 rounded-lg border-l-2 px-3 py-2.5 text-sm transition-colors',
                   active
-                    ? 'bg-sidebar-primary font-medium text-sidebar-primary-foreground'
-                    : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground',
+                    ? 'border-l-sidebar-primary-foreground bg-sidebar-accent font-medium text-sidebar-foreground'
+                    : 'border-l-transparent text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground',
                 )}
               >
                 <Icon className="size-4 shrink-0" />
@@ -144,6 +146,7 @@ export function Nav({ user }: { user: SessionUser }) {
         <div className="flex flex-col gap-2">
           <Link
             href="/perfil"
+            aria-current={pathname.startsWith('/perfil') ? 'page' : undefined}
             className={cn(
               'flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors',
               pathname.startsWith('/perfil')
