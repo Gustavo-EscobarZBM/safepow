@@ -26,10 +26,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
-
-function formatBRL(value: number) {
-  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-}
+import { formatBRL } from '@/lib/format';
 
 function toDateInputValue(date: Date) {
   const pad = (n: number) => String(n).padStart(2, '0');

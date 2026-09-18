@@ -3,14 +3,7 @@
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import type { LossByPeriodRow } from '@/lib/types';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
-
-function formatBRL(value: number) {
-  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
-}
-
-function formatDateShort(iso: string) {
-  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-}
+import { formatBRL, formatDateShortBR } from '@/lib/format';
 
 const chartConfig = {
   totalFinancialLoss: {
@@ -45,14 +38,14 @@ export function LossesTrendChart({ data }: { data: LossByPeriodRow[] }) {
         <CartesianGrid vertical={false} stroke="rgb(var(--border))" />
         <XAxis
           dataKey="date"
-          tickFormatter={formatDateShort}
+          tickFormatter={formatDateShortBR}
           tickLine={false}
           axisLine={false}
           tick={{ fontSize: 11 }}
           minTickGap={24}
         />
         <YAxis
-          tickFormatter={(v) => formatBRL(v)}
+          tickFormatter={(v) => formatBRL(v, { maximumFractionDigits: 0 })}
           tickLine={false}
           axisLine={false}
           width={80}
@@ -61,8 +54,8 @@ export function LossesTrendChart({ data }: { data: LossByPeriodRow[] }) {
         <ChartTooltip
           content={
             <ChartTooltipContent
-              labelFormatter={(_, payload) => formatDateShort(payload?.[0]?.payload?.date)}
-              formatter={(value) => formatBRL(Number(value))}
+              labelFormatter={(_, payload) => formatDateShortBR(payload?.[0]?.payload?.date)}
+              formatter={(value) => formatBRL(Number(value), { maximumFractionDigits: 0 })}
             />
           }
         />

@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { Cell, Pie, PieChart } from 'recharts';
 import type { LossByLocationRow, LossByReasonRow } from '@/lib/types';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
+import { formatBRL } from '@/lib/format';
 
 const SLICE_COLORS = [
   'rgb(var(--chart-1))',
@@ -12,10 +13,6 @@ const SLICE_COLORS = [
   'rgb(var(--chart-4))',
   'rgb(var(--chart-5))',
 ];
-
-function formatBRL(value: number) {
-  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-}
 
 export function LossesBreakdownChart({
   byReason,

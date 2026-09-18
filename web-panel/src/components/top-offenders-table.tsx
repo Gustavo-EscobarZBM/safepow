@@ -1,9 +1,6 @@
 import type { LossByProductReportRow } from '@/lib/types';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-
-function formatBRL(value: number) {
-  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-}
+import { formatBRL } from '@/lib/format';
 
 export function TopOffendersTable({
   data,
