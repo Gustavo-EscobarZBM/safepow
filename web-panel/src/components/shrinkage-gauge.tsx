@@ -2,7 +2,7 @@ import { shrinkageGaugeStatus } from '@/lib/shrinkage-gauge';
 import { cn } from '@/lib/utils';
 
 const STATUS_COLOR: Record<string, string> = {
-  good: 'stroke-success text-success',
+  good: 'stroke-success text-success-foreground',
   warning: 'stroke-warning text-warning-foreground',
   critical: 'stroke-destructive text-destructive',
   unknown: 'stroke-muted-foreground text-muted-foreground',
