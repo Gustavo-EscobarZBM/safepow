@@ -1,6 +1,7 @@
 import type { LossByProductReportRow } from '@/lib/types';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatBRL } from '@/lib/format';
+import { percentOfTotal } from '@/lib/table-metrics';
 
 export function TopOffendersTable({
   data,
@@ -37,7 +38,7 @@ export function TopOffendersTable({
       <TableBody>
         {rows.map((row, index) => {
           const financialLoss = Number(row.totalFinancialLoss);
-          const percent = total === 0 ? 0 : (financialLoss / total) * 100;
+          const percent = percentOfTotal(financialLoss, total);
           return (
             <TableRow key={row.productId}>
               <TableCell className="font-display text-muted-foreground">{index + 1}</TableCell>
@@ -45,7 +46,16 @@ export function TopOffendersTable({
               <TableCell className="text-right">{Number(row.totalQuantity).toLocaleString('pt-BR')}</TableCell>
               <TableCell className="text-right">{formatBRL(financialLoss)}</TableCell>
               <TableCell className="text-right text-muted-foreground">
-                {percent.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+                <div className="flex items-center justify-end gap-2">
+                  <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+                    <div
+                      data-testid="offender-bar"
+                      className="h-full rounded-full bg-primary"
+                      style={{ width: `${percent}%` }}
+                    />
+                  </div>
+                  <span className="tabular-nums">{percent.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%</span>
+                </div>
               </TableCell>
             </TableRow>
           );
