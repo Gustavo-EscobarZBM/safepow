@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertTriangle, CheckCircle2, Info, ShieldAlert, type LucideIcon } from 'lucide-react';
-import type { AlertSeverity, LossAlert } from '@/lib/types';
+import type { LossAlert } from '@/lib/types';
+import { SEVERITY_STYLES } from '@/lib/severity';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -14,13 +14,6 @@ import {
 } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
-
-const SEVERITY_STYLES: Record<AlertSeverity, { icon: LucideIcon; className: string }> = {
-  critical: { icon: ShieldAlert, className: 'bg-destructive/15 text-destructive' },
-  warning: { icon: AlertTriangle, className: 'bg-warning/15 text-warning-foreground' },
-  success: { icon: CheckCircle2, className: 'bg-success/15 text-success-foreground' },
-  info: { icon: Info, className: 'bg-accent text-accent-foreground' },
-};
 
 function AlertRow({ alert }: { alert: LossAlert }) {
   const { icon: Icon, className } = SEVERITY_STYLES[alert.severity];

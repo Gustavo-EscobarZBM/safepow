@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import type { SuspiciousPatternEntry } from '@/lib/types';
+import { scoreToSeverity, SEVERITY_STYLES } from '@/lib/severity';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -14,19 +15,13 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 
-function scoreBadgeClassName(score: number) {
-  if (score >= 50) return 'bg-destructive/15 text-destructive';
-  if (score >= 25) return 'bg-warning/15 text-warning-foreground';
-  return 'bg-accent text-accent-foreground';
-}
-
 function PatternRow({ entry }: { entry: SuspiciousPatternEntry }) {
   return (
     <div className="flex gap-3">
       <div
         className={cn(
           'flex size-8 shrink-0 items-center justify-center rounded-lg text-xs font-semibold',
-          scoreBadgeClassName(entry.score),
+          SEVERITY_STYLES[scoreToSeverity(entry.score)].className,
         )}
       >
         {entry.score}
