@@ -47,16 +47,24 @@ export function LossesBreakdownChart({
       {chartData.length === 0 ? (
         <EmptyState message="Nenhuma perda registrada no período selecionado." className="h-64" />
       ) : (
-        <ChartContainer config={chartConfig} className="mx-auto aspect-square h-64">
-          <PieChart>
-            <ChartTooltip content={<ChartTooltipContent formatter={(value) => formatBRL(Number(value))} hideLabel />} />
-            <Pie data={chartData} dataKey="value" nameKey="label" innerRadius={55} outerRadius={90} strokeWidth={2}>
-              {chartData.map((entry) => (
-                <Cell key={entry.label} fill={entry.fill} />
-              ))}
-            </Pie>
-          </PieChart>
-        </ChartContainer>
+        <div className="relative">
+          <ChartContainer config={chartConfig} className="mx-auto aspect-square h-64">
+            <PieChart>
+              <ChartTooltip content={<ChartTooltipContent formatter={(value) => formatBRL(Number(value))} hideLabel />} />
+              <Pie data={chartData} dataKey="value" nameKey="label" innerRadius={55} outerRadius={90} strokeWidth={2}>
+                {chartData.map((entry) => (
+                  <Cell key={entry.label} fill={entry.fill} />
+                ))}
+              </Pie>
+            </PieChart>
+          </ChartContainer>
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+            <p className="text-xs text-muted-foreground">Total</p>
+            <p className="font-display text-lg text-foreground" data-testid="breakdown-total">
+              {formatBRL(chartData.reduce((sum, row) => sum + row.value, 0))}
+            </p>
+          </div>
+        </div>
       )}
 
       <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
