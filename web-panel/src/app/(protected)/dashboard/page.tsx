@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, Download, Printer, Search } from 'lucide-react';
 import { api, ApiError } from '@/lib/api-client';
+import { formatBRL } from '@/lib/format';
 import type {
   CompanyMonthlyRevenue,
   LossAlert,
@@ -14,9 +15,11 @@ import type {
   SuspiciousPatternEntry,
 } from '@/lib/types';
 import { AlertsCard } from '@/components/alerts-card';
-import { KpiCard } from '@/components/kpi-card';
+import { DashboardHero } from '@/components/dashboard-hero';
+import { KpiTile } from '@/components/kpi-card';
 import { LossesTrendChart } from '@/components/losses-trend-chart';
 import { LossesBreakdownChart } from '@/components/losses-breakdown-chart';
+import { ShrinkageGauge } from '@/components/shrinkage-gauge';
 import { SuspiciousPatternsCard } from '@/components/suspicious-patterns-card';
 import { TopOffendersTable } from '@/components/top-offenders-table';
 import { Badge } from '@/components/ui/badge';
@@ -24,9 +27,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { cn } from '@/lib/utils';
-import { formatBRL } from '@/lib/format';
 
 function toDateInputValue(date: Date) {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -48,6 +50,8 @@ export default function DashboardPage() {
   const [byReason, setByReason] = useState<LossByReasonRow[]>([]);
   const [byLocation, setByLocation] = useState<LossByLocationRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [initialError, setInitialError] = useState<string | null>(null);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [quickPeriod, setQuickPeriod] = useState<string | null>(null);
@@ -86,26 +90,28 @@ export default function DashboardPage() {
       .catch((e: ApiError) => setError(e.message));
   }
 
-  useEffect(() => {
-    api
-      .get<LossSummaryReport>('losses/reports/summary')
-      .then(setSummary)
-      .catch((e: ApiError) => setError(e.message));
-    // Alertas usam uma janela fixa de 30 dias no backend, independente do
-    // filtro de período que o gerente aplica no resto da tela.
-    api
-      .get<LossAlert[]>('losses/reports/alerts')
-      .then(setAlerts)
-      .catch((e: ApiError) => setError(e.message));
-    api
-      .get<SuspiciousPatternEntry[]>('losses/reports/suspicious-patterns')
-      .then(setSuspiciousPatterns)
-      .catch((e: ApiError) => setError(e.message));
-    api
-      .get<CompanyMonthlyRevenue | null>(`company-revenue?year=${now.getFullYear()}&month=${now.getMonth() + 1}`)
-      .then((revenue) => setRevenueInput(revenue ? String(revenue.revenueAmount) : ''))
-      .catch(() => {});
+  function loadDashboardData() {
+    setLoading(true);
+    setInitialError(null);
+    Promise.all([
+      api.get<LossSummaryReport>('losses/reports/summary'),
+      api.get<LossAlert[]>('losses/reports/alerts'),
+      api.get<SuspiciousPatternEntry[]>('losses/reports/suspicious-patterns'),
+      api.get<CompanyMonthlyRevenue | null>(`company-revenue?year=${now.getFullYear()}&month=${now.getMonth() + 1}`),
+    ])
+      .then(([summaryData, alertsData, patternsData, revenue]) => {
+        setSummary(summaryData);
+        setAlerts(alertsData);
+        setSuspiciousPatterns(patternsData);
+        setRevenueInput(revenue ? String(revenue.revenueAmount) : '');
+      })
+      .catch((e: ApiError) => setInitialError(e.message))
+      .finally(() => setLoading(false));
     loadFilteredReports('', '');
+  }
+
+  useEffect(() => {
+    loadDashboardData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -169,6 +175,75 @@ export default function DashboardPage() {
     return byProduct.filter((row) => row.productName.toLowerCase().includes(term));
   }, [byProduct, productQuery]);
 
+  const periodFilters = (
+    <div className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end">
+      <div className="space-y-1.5">
+        <Label className="text-sidebar-foreground/70">Período rápido</Label>
+        <Tabs value={quickPeriod ?? undefined} onValueChange={handleQuickPeriod}>
+          <TabsList>
+            {QUICK_PERIODS.map((preset) => (
+              <TabsTrigger key={preset.label} value={preset.label}>
+                {preset.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-sidebar-foreground/70">De</Label>
+        <div className="relative">
+          <Input
+            type="date"
+            className="w-auto pr-9"
+            value={from}
+            onChange={(e) => {
+              setQuickPeriod(null);
+              setFrom(e.target.value);
+            }}
+          />
+          <CalendarDays className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <Label className="text-sidebar-foreground/70">Até</Label>
+        <div className="relative">
+          <Input
+            type="date"
+            className="w-auto pr-9"
+            value={to}
+            onChange={(e) => {
+              setQuickPeriod(null);
+              setTo(e.target.value);
+            }}
+          />
+          <CalendarDays className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        </div>
+      </div>
+      <Button variant="outline" onClick={() => loadFilteredReports()}>
+        Filtrar período
+      </Button>
+      {(from || to) && (
+        <Button
+          variant="ghost"
+          onClick={() => {
+            setFrom('');
+            setTo('');
+            setQuickPeriod(null);
+            loadFilteredReports('', '');
+          }}
+        >
+          Limpar filtro
+        </Button>
+      )}
+      {lastUpdatedAt && (
+        <p className="text-sm text-sidebar-foreground/60 lg:ml-auto">
+          Dados atualizados hoje às{' '}
+          {lastUpdatedAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+        </p>
+      )}
+    </div>
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -178,7 +253,7 @@ export default function DashboardPage() {
             Visão geral das perdas registradas pelos funcionários pelo aplicativo.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 print:hidden">
           <Button variant="outline" onClick={() => window.print()}>
             <Printer data-icon="inline-start" />
             Imprimir
@@ -190,26 +265,50 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <KpiCard
-          label="Prejuízo total no mês (venda)"
-          value={formatBRL(summary?.currentMonth.totalFinancialLoss ?? 0)}
-          variationPercent={summary?.financialVariationPercent ?? undefined}
-        />
-        <KpiCard
-          label="Prejuízo de custo no mês"
-          value={formatBRL(summary?.currentMonth.totalCostLoss ?? 0)}
-          variationPercent={summary?.costVariationPercent ?? undefined}
-          hint="Valor real pago pelos itens perdidos"
-        />
-        <KpiCard
-          label="Itens descartados no mês"
-          value={(summary?.currentMonth.totalQuantity ?? 0).toLocaleString('pt-BR')}
-          hint={`Mês anterior: ${(summary?.previousMonth.totalQuantity ?? 0).toLocaleString('pt-BR')}`}
-        />
-        <KpiCard label="Produto mais perdido" value={topProduct} hint="No período filtrado abaixo" />
-        <KpiCard label="Motivo mais comum" value={topReason} hint="No período filtrado abaixo" />
-      </div>
+      {loading ? (
+        <div className="space-y-4">
+          <Skeleton className="h-48 w-full rounded-xl" />
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Skeleton className="h-16" />
+            <Skeleton className="h-16" />
+            <Skeleton className="h-16" />
+            <Skeleton className="h-16" />
+          </div>
+        </div>
+      ) : initialError ? (
+        <div className="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+          <p className="mb-2">{initialError}</p>
+          <Button variant="outline" size="sm" onClick={loadDashboardData}>
+            Tentar novamente
+          </Button>
+        </div>
+      ) : (
+        <>
+          <DashboardHero
+            totalFinancialLoss={summary?.currentMonth.totalFinancialLoss ?? 0}
+            previousMonthTotal={summary?.previousMonth.totalFinancialLoss ?? 0}
+            variationPercent={summary?.financialVariationPercent ?? null}
+            trendData={byPeriod}
+            projected={summary?.projectedMonthEnd ?? null}
+            filters={periodFilters}
+          />
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <KpiTile
+              label="Prejuízo de custo no mês"
+              value={formatBRL(summary?.currentMonth.totalCostLoss ?? 0)}
+              hint="Valor real pago pelos itens perdidos"
+            />
+            <KpiTile
+              label="Itens descartados no mês"
+              value={(summary?.currentMonth.totalQuantity ?? 0).toLocaleString('pt-BR')}
+              hint={`Mês anterior: ${(summary?.previousMonth.totalQuantity ?? 0).toLocaleString('pt-BR')}`}
+            />
+            <KpiTile label="Produto mais perdido" value={topProduct} hint="No período filtrado abaixo" />
+            <KpiTile label="Motivo mais comum" value={topReason} hint="No período filtrado abaixo" />
+          </div>
+        </>
+      )}
 
       <Card>
         <CardHeader>
@@ -235,107 +334,9 @@ export default function DashboardPage() {
             {revenueSaving ? 'Salvando...' : 'Salvar faturamento'}
           </Button>
           {revenueError && <p className="text-sm text-destructive">{revenueError}</p>}
-          {summary?.shrinkageRate !== null && summary?.shrinkageRate !== undefined && (
-            <div className="sm:ml-auto">
-              <p className="text-xs text-muted-foreground">Taxa de perda sobre faturamento</p>
-              <p
-                className={cn(
-                  'font-display text-2xl',
-                  summary.shrinkageRate > 2 ? 'text-destructive' : 'text-foreground',
-                )}
-              >
-                {summary.shrinkageRate.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {summary && summary.currentMonth.totalFinancialLoss > 0 && (
-        <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-700 dark:text-amber-400">
-          No ritmo atual, você deve fechar o mês com prejuízo de{' '}
-          <strong>{formatBRL(summary.projectedMonthEnd.totalFinancialLoss)}</strong>
-          {summary.projectedMonthEnd.financialVariationPercent !== null && (
-            <>
-              {' '}
-              (
-              {summary.projectedMonthEnd.financialVariationPercent > 0 ? '+' : ''}
-              {summary.projectedMonthEnd.financialVariationPercent.toLocaleString('pt-BR', {
-                maximumFractionDigits: 1,
-              })}
-              % vs. mês anterior)
-            </>
-          )}
-          .
-        </div>
-      )}
-
-      <Card>
-        <CardContent className="flex flex-col gap-4 lg:flex-row lg:items-end">
-          <div className="space-y-1.5">
-            <Label>Período rápido</Label>
-            <Tabs value={quickPeriod ?? undefined} onValueChange={handleQuickPeriod}>
-              <TabsList>
-                {QUICK_PERIODS.map((preset) => (
-                  <TabsTrigger key={preset.label} value={preset.label}>
-                    {preset.label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
+          <div className="sm:ml-auto">
+            <ShrinkageGauge rate={summary?.shrinkageRate ?? null} />
           </div>
-          <div className="space-y-1.5">
-            <Label>De</Label>
-            <div className="relative">
-              <Input
-                type="date"
-                className="w-auto pr-9"
-                value={from}
-                onChange={(e) => {
-                  setQuickPeriod(null);
-                  setFrom(e.target.value);
-                }}
-              />
-              <CalendarDays className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Até</Label>
-            <div className="relative">
-              <Input
-                type="date"
-                className="w-auto pr-9"
-                value={to}
-                onChange={(e) => {
-                  setQuickPeriod(null);
-                  setTo(e.target.value);
-                }}
-              />
-              <CalendarDays className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            </div>
-          </div>
-          <Button variant="outline" onClick={() => loadFilteredReports()}>
-            Filtrar período
-          </Button>
-          {(from || to) && (
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setFrom('');
-                setTo('');
-                setQuickPeriod(null);
-                loadFilteredReports('', '');
-              }}
-            >
-              Limpar filtro
-            </Button>
-          )}
-          {lastUpdatedAt && (
-            <p className="text-sm text-muted-foreground lg:ml-auto">
-              Dados atualizados hoje às{' '}
-              {lastUpdatedAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-            </p>
-          )}
         </CardContent>
       </Card>
 
@@ -390,10 +391,12 @@ export default function DashboardPage() {
               </div>
               <Badge variant="secondary">{filteredByProduct.length} itens</Badge>
             </div>
-            <TopOffendersTable
-              data={filteredByProduct}
-              total={byProduct.reduce((sum, row) => sum + Number(row.totalFinancialLoss), 0)}
-            />
+            <div className="overflow-x-auto">
+              <TopOffendersTable
+                data={filteredByProduct}
+                total={byProduct.reduce((sum, row) => sum + Number(row.totalFinancialLoss), 0)}
+              />
+            </div>
           </CardContent>
         </Card>
 
