@@ -48,3 +48,13 @@ function VariationBadge({ percent }: { percent: number }) {
     </p>
   );
 }
+
+export function KpiTile({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="flex flex-col gap-0.5 rounded-lg border border-border/60 bg-card px-4 py-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="font-display text-lg text-foreground">{value}</p>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
