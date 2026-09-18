@@ -2,6 +2,7 @@
 
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from 'recharts';
 import type { LossByPeriodRow } from '@/lib/types';
+import { EmptyState } from '@/components/empty-state';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
 import { formatBRL, formatDateShortBR } from '@/lib/format';
 
@@ -19,11 +20,7 @@ export function LossesTrendChart({ data }: { data: LossByPeriodRow[] }) {
   }));
 
   if (chartData.length === 0) {
-    return (
-      <div className="flex h-72 items-center justify-center text-sm text-muted-foreground">
-        Nenhuma perda registrada no período selecionado.
-      </div>
-    );
+    return <EmptyState message="Nenhuma perda registrada no período selecionado." className="h-72" />;
   }
 
   return (

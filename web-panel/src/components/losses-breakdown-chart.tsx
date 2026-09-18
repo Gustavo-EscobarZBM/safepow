@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { Cell, Pie, PieChart } from 'recharts';
 import type { LossByLocationRow, LossByReasonRow } from '@/lib/types';
+import { EmptyState } from '@/components/empty-state';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
 import { formatBRL } from '@/lib/format';
 
@@ -44,9 +45,7 @@ export function LossesBreakdownChart({
   return (
     <div className="space-y-4">
       {chartData.length === 0 ? (
-        <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
-          Nenhuma perda registrada no período selecionado.
-        </div>
+        <EmptyState message="Nenhuma perda registrada no período selecionado." className="h-64" />
       ) : (
         <ChartContainer config={chartConfig} className="mx-auto aspect-square h-64">
           <PieChart>

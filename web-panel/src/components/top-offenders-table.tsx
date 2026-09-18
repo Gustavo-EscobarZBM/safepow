@@ -1,4 +1,5 @@
 import type { LossByProductReportRow } from '@/lib/types';
+import { EmptyState } from '@/components/empty-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatBRL } from '@/lib/format';
 import { percentOfTotal } from '@/lib/table-metrics';
@@ -17,11 +18,7 @@ export function TopOffendersTable({
   const total = totalOverride ?? data.reduce((sum, row) => sum + Number(row.totalFinancialLoss), 0);
 
   if (rows.length === 0) {
-    return (
-      <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-        Nenhuma perda registrada no período selecionado.
-      </div>
-    );
+    return <EmptyState message="Nenhuma perda registrada no período selecionado." />;
   }
 
   return (
