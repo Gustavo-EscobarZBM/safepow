@@ -41,6 +41,36 @@ describe('DashboardHero', () => {
     expect(screen.getByText(/25,0% vs\. mês anterior/)).toBeInTheDocument();
   });
 
+  it('colors a worsening variation with a red that stays legible on the dark hero band in both themes', () => {
+    render(
+      <DashboardHero
+        totalFinancialLoss={1000}
+        previousMonthTotal={800}
+        variationPercent={25}
+        trendData={[]}
+        projected={null}
+      />,
+    );
+
+    const badge = screen.getByText(/25,0% vs\. mês anterior/);
+    expect(badge).toHaveClass('text-red-400');
+    expect(badge).not.toHaveClass('text-destructive');
+  });
+
+  it('colors an improving variation with the success color', () => {
+    render(
+      <DashboardHero
+        totalFinancialLoss={720}
+        previousMonthTotal={800}
+        variationPercent={-10}
+        trendData={[]}
+        projected={null}
+      />,
+    );
+
+    expect(screen.getByText(/10,0% vs\. mês anterior/)).toHaveClass('text-success');
+  });
+
   it('shows the projected month-end line only when there is a positive projection', () => {
     const { rerender } = render(
       <DashboardHero

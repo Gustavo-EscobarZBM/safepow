@@ -28,7 +28,7 @@ function HeroVariation({ percent }: { percent: number }) {
     <span
       className={cn(
         'inline-flex items-center gap-1 font-medium',
-        isFlat ? 'text-sidebar-foreground/70' : isWorse ? 'text-destructive' : 'text-success',
+        isFlat ? 'text-sidebar-foreground/70' : isWorse ? 'text-red-400' : 'text-success',
       )}
     >
       <Icon className="size-3.5" />
