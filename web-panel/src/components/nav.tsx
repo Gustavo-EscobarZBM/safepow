@@ -65,7 +65,7 @@ export function Nav({ user }: { user: SessionUser }) {
   }
 
   return (
-    <nav className="flex h-screen w-64 flex-col justify-between bg-sidebar text-sidebar-foreground">
+    <nav className="sticky top-0 flex h-screen w-64 shrink-0 flex-col justify-between bg-sidebar text-sidebar-foreground">
       <div>
         <div className="px-6 py-7">
           <Logo variant="dark" />

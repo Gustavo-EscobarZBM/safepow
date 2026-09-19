@@ -191,7 +191,7 @@ export default function DashboardPage() {
       </div>
       <div className="space-y-1.5">
         <Label className="text-sidebar-foreground/70">De</Label>
-        <div className="relative">
+        <div className="relative w-fit">
           <Input
             type="date"
             className="w-auto pr-9"
@@ -206,7 +206,7 @@ export default function DashboardPage() {
       </div>
       <div className="space-y-1.5">
         <Label className="text-sidebar-foreground/70">Até</Label>
-        <div className="relative">
+        <div className="relative w-fit">
           <Input
             type="date"
             className="w-auto pr-9"
@@ -219,7 +219,7 @@ export default function DashboardPage() {
           <CalendarDays className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         </div>
       </div>
-      <Button variant="outline" onClick={() => loadFilteredReports()}>
+      <Button variant="outline" className="text-foreground" onClick={() => loadFilteredReports()}>
         Filtrar período
       </Button>
       {(from || to) && (
@@ -318,7 +318,7 @@ export default function DashboardPage() {
             padrão do varejo (faixa normal: 1–2%).
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-end">
+        <CardContent className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end">
           <div className="space-y-1.5">
             <Label>Faturamento do mês (R$)</Label>
             <Input
