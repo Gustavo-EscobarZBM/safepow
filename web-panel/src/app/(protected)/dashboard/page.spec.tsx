@@ -58,6 +58,29 @@ describe('DashboardPage', () => {
     );
   });
 
+  it('still renders the dashboard when only the optional company-revenue request fails', async () => {
+    (api.get as ReturnType<typeof vi.fn>).mockImplementation(async (path: string) => {
+      if (path.startsWith('losses/reports/summary')) return summary;
+      if (path.startsWith('losses/reports/alerts')) return [];
+      if (path.startsWith('losses/reports/suspicious-patterns')) return [];
+      if (path.startsWith('company-revenue')) throw new Error('Erro de rede.');
+      return [];
+    });
+
+    render(<DashboardPage />);
+
+    // The revenue figure is an optional, manager-entered field: its failure must not
+    // replace the whole dashboard with the retry state.
+    const heroValue = await screen.findByTestId('hero-value');
+    await waitFor(
+      () => {
+        expect(heroValue).toHaveTextContent('1.000,00');
+      },
+      { timeout: 2000 },
+    );
+    expect(screen.queryByRole('button', { name: /tentar novamente/i })).toBeNull();
+  });
+
   it('shows a retry button when the initial load fails, and recovers on retry', async () => {
     (api.get as ReturnType<typeof vi.fn>).mockImplementation(async (path: string) => {
       if (path.startsWith('losses/reports/summary')) throw new Error('Erro de rede.');

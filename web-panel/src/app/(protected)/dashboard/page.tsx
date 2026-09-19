@@ -95,9 +95,13 @@ export default function DashboardPage() {
     setInitialError(null);
     Promise.all([
       api.get<LossSummaryReport>('losses/reports/summary'),
+      // Alertas usam uma janela fixa de 30 dias no backend, independente do filtro de período que o gerente aplica no resto da tela.
       api.get<LossAlert[]>('losses/reports/alerts'),
       api.get<SuspiciousPatternEntry[]>('losses/reports/suspicious-patterns'),
-      api.get<CompanyMonthlyRevenue | null>(`company-revenue?year=${now.getFullYear()}&month=${now.getMonth() + 1}`),
+      // O faturamento é um campo opcional preenchido pelo gerente: se falhar, o dashboard continua utilizável.
+      api
+        .get<CompanyMonthlyRevenue | null>(`company-revenue?year=${now.getFullYear()}&month=${now.getMonth() + 1}`)
+        .catch(() => null),
     ])
       .then(([summaryData, alertsData, patternsData, revenue]) => {
         setSummary(summaryData);
