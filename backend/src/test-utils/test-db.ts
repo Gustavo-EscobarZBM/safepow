@@ -1,18 +1,9 @@
 import { DataSource, EntityManager } from 'typeorm';
 import { tenantStorage } from '../common/tenant/tenant-storage';
-import { Company } from '../modules/companies/company.entity';
-import { CompanyMonthlyRevenue } from '../modules/company-revenue/company-monthly-revenue.entity';
-import { ImportJob } from '../modules/imports/import-job.entity';
-import { LossLocation } from '../modules/loss-locations/loss-location.entity';
-import { LossReason } from '../modules/loss-reasons/loss-reason.entity';
-import { Loss } from '../modules/losses/loss.entity';
-import { Product } from '../modules/products/product.entity';
-import { User, UserRole } from '../modules/users/user.entity';
+import { ENTITIES } from '../database/entities';
+import { UserRole } from '../modules/users/user.entity';
 import { getTestDbConfig, TestDbConfig } from './test-db-config';
 import { queryAsAdmin, queryAsOwner } from './test-db-lifecycle';
-
-// Mesma lista de entidades registrada em app.module.ts (a de data-source.ts está defasada).
-export const TEST_ENTITIES = [Company, User, Product, Loss, ImportJob, LossReason, LossLocation, CompanyMonthlyRevenue];
 
 let cachedConfig: TestDbConfig | undefined;
 
@@ -37,7 +28,7 @@ export async function appDataSource(): Promise<DataSource> {
       username: cfg.appUser,
       password: cfg.appPassword,
       database: cfg.database,
-      entities: TEST_ENTITIES,
+      entities: ENTITIES,
       synchronize: false,
       logging: false,
     });

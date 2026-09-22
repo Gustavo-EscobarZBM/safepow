@@ -1,13 +1,7 @@
 import 'reflect-metadata';
 import * as dotenv from 'dotenv';
 import { DataSource, DataSourceOptions } from 'typeorm';
-import { Company } from '../modules/companies/company.entity';
-import { User } from '../modules/users/user.entity';
-import { Product } from '../modules/products/product.entity';
-import { LossLocation } from '../modules/loss-locations/loss-location.entity';
-import { LossReason } from '../modules/loss-reasons/loss-reason.entity';
-import { Loss } from '../modules/losses/loss.entity';
-import { ImportJob } from '../modules/imports/import-job.entity';
+import { ENTITIES } from './entities';
 
 dotenv.config();
 
@@ -23,7 +17,7 @@ export const dataSourceOptions: DataSourceOptions = {
   password: process.env.DB_ADMIN_PASSWORD || 'postgres',
   database: process.env.DB_NAME || 'inventory_saas',
   ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
-  entities: [Company, User, Product, Loss, ImportJob, LossReason, LossLocation],
+  entities: ENTITIES,
   migrations: [__dirname + '/migrations/*.{ts,js}'],
   synchronize: false, // NUNCA true em produção — sempre via migrations controladas.
   logging: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],

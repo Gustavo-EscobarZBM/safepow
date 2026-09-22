@@ -6,22 +6,15 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { TenantContextMiddleware } from './common/tenant/tenant-context.middleware';
 import { AuthModule } from './modules/auth/auth.module';
 import { BillingModule } from './modules/billing/billing.module';
-import { Company } from './modules/companies/company.entity';
+import { ENTITIES } from './database/entities';
 import { CompaniesModule } from './modules/companies/companies.module';
-import { ImportJob } from './modules/imports/import-job.entity';
 import { ImportsModule } from './modules/imports/imports.module';
-import { CompanyMonthlyRevenue } from './modules/company-revenue/company-monthly-revenue.entity';
 import { CompanyRevenueModule } from './modules/company-revenue/company-revenue.module';
-import { LossLocation } from './modules/loss-locations/loss-location.entity';
 import { LossLocationsModule } from './modules/loss-locations/loss-locations.module';
-import { LossReason } from './modules/loss-reasons/loss-reason.entity';
 import { LossReasonsModule } from './modules/loss-reasons/loss-reasons.module';
-import { Loss } from './modules/losses/loss.entity';
 import { LossesModule } from './modules/losses/losses.module';
-import { Product } from './modules/products/product.entity';
 import { ProductsModule } from './modules/products/products.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
-import { User } from './modules/users/user.entity';
 import { UsersModule } from './modules/users/users.module';
 
 @Module({
@@ -41,7 +34,7 @@ import { UsersModule } from './modules/users/users.module';
         password: config.get<string>('DB_APP_PASSWORD'),
         database: config.get<string>('DB_NAME'),
         ssl: config.get<string>('DB_SSL') === 'true' ? { rejectUnauthorized: false } : false,
-        entities: [Company, User, Product, Loss, ImportJob, LossReason, LossLocation, CompanyMonthlyRevenue],
+        entities: ENTITIES,
         synchronize: false,
         logging: config.get<string>('NODE_ENV') === 'development' ? ['error', 'warn'] : ['error'],
       }),
