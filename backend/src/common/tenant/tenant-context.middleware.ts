@@ -1,7 +1,7 @@
-import { Injectable, NestMiddleware } from '@nestjs/common';
+import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { NextFunction, Request, Response } from 'express';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryRunner } from 'typeorm';
 import { tenantStorage } from './tenant-storage';
 import { UserRole } from '../../modules/users/user.entity';
 
@@ -21,6 +21,8 @@ declare module 'express' {
 
 @Injectable()
 export class TenantContextMiddleware implements NestMiddleware {
+  private readonly logger = new Logger(TenantContextMiddleware.name);
+
   constructor(
     private readonly jwtService: JwtService,
     private readonly dataSource: DataSource,
@@ -60,22 +62,82 @@ export class TenantContextMiddleware implements NestMiddleware {
         manager: queryRunner.manager,
       };
 
-      res.on('finish', () => {
-        const commitOrRollback =
-          res.statusCode >= 200 && res.statusCode < 400
-            ? queryRunner.commitTransaction()
-            : queryRunner.rollbackTransaction();
-
-        commitOrRollback
-          .catch(() => undefined)
-          .finally(() => queryRunner.release());
-      });
+      this.finishTransactionBeforeResponse(res, queryRunner);
 
       tenantStorage.run(context, () => next());
     } catch (err) {
       await queryRunner.rollbackTransaction().catch(() => undefined);
       await queryRunner.release();
       next(err);
+    }
+  }
+
+  /**
+   * A resposta só é entregue DEPOIS de a transação terminar. Antes, o commit ficava em
+   * `res.on('finish')` — que dispara depois de a resposta já ter saído — e o cliente
+   * (ex.: o app, que sincroniza logo em seguida) podia ler antes do commit. Também
+   * engolia falha de commit: o cliente recebia sucesso de algo que não foi gravado.
+   *
+   * Todo caminho de resposta do Express/Nest (json, send, download, stream com pipe)
+   * termina em `res.end`, por isso é ali que a transação é finalizada.
+   */
+  private finishTransactionBeforeResponse(res: Response, queryRunner: QueryRunner): void {
+    const originalEnd = res.end.bind(res) as unknown as (...args: unknown[]) => Response;
+    let endRequested = false;
+
+    res.end = ((...args: unknown[]) => {
+      // Só o primeiro `end` vale — como no Node nativo, onde os seguintes são ignorados.
+      if (endRequested) return res;
+      endRequested = true;
+
+      // Enquanto a transação finaliza a resposta ainda não saiu, mas quem consulta `headersSent`
+      // (o filtro de exceções do Nest, o finalhandler do Express) precisa enxergar "já respondida":
+      // senão tentaria responder de novo e corromperia a resposta pendente (status/Content-Length
+      // tardios) ou estouraria ERR_STREAM_WRITE_AFTER_END. O valor real é guardado para o ramo de
+      // falha de commit abaixo.
+      const headersAlreadySent = res.headersSent;
+      Object.defineProperty(res, 'headersSent', { configurable: true, get: () => true });
+
+      this.finishTransaction(queryRunner, res.statusCode >= 200 && res.statusCode < 400).then(
+        () => {
+          originalEnd(...args);
+        },
+        () => {
+          // O commit falhou: o cliente não pode receber um sucesso que não foi gravado.
+          if (headersAlreadySent) {
+            originalEnd();
+            return;
+          }
+          res.statusCode = 500;
+          res.removeHeader('Content-Length');
+          res.removeHeader('ETag');
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          originalEnd(JSON.stringify({ statusCode: 500, message: 'Erro interno ao concluir a operação.' }));
+        },
+      ).catch((error: unknown) => {
+        this.logger.error(
+          `Falha ao entregar a resposta após finalizar a transação: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        res.destroy();
+      });
+      return res;
+    }) as Response['end'];
+  }
+
+  private async finishTransaction(queryRunner: QueryRunner, commit: boolean): Promise<void> {
+    try {
+      if (commit) {
+        await queryRunner.commitTransaction();
+      } else {
+        await queryRunner.rollbackTransaction();
+      }
+    } catch (error) {
+      if (queryRunner.isTransactionActive) {
+        await queryRunner.rollbackTransaction().catch(() => undefined);
+      }
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
   }
 }
