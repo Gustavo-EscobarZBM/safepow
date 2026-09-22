@@ -151,11 +151,76 @@ testes de caracterização estão escritos com o resultado documentado.
 
 ---
 
-## 4. Etapa 1.2 — Valor congelado e histórico de preço
+## 4. Etapa 1.2 — Valor congelado, histórico de preço e correção do F18
 
-### 4.1 Migrations
+**Decisão do usuário (2026-09-21):** a correção do F18 entra nesta etapa, como a primeira sub-etapa —
+antes de criar as tabelas novas, que herdariam o mesmo bug se copiassem o molde de política atual.
 
-**`1700000010000-ProductPriceHistory`**
+| Sub-etapa | Nome | Migration(s) | Depende de |
+|---|---|---|---|
+| **1.2.1** | Correção do F18 + hardening do harness (pré-requisito da 1.1) | `1700000010000-RlsReusedConnectionFix` | etapa 1.1 |
+| **1.2.2** | Histórico de preço + valor congelado da perda (migrations e trigger) | `1700000011000-ProductPriceHistory`, `1700000012000-LossValuationSnapshot` | 1.2.1 |
+| **1.2.3** | Backend: `resolveLossValuation`, `LossesService`, troca da base de cálculo nas consultas | — | 1.2.2 |
+| **1.2.4** | Web: linha do tempo de preços no diálogo de produto | — | 1.2.3 |
+
+Cada sub-etapa termina com testes verdes (unitários + integração) antes da seguinte, como na etapa 1.1.
+
+### 4.0 Sub-etapa 1.2.1 — Correção do F18 e hardening do harness
+
+**Por quê primeiro:** o F18 (RLS falha em conexão reaproveitada do pool) afeta **toda** tabela protegida
+por RLS, inclusive as que a 1.2.2 ainda vai criar; e os itens de hardening do harness (ver "Pendências"
+da etapa 1.1, acima) previnem que os testes de RLS das tabelas novas fiquem verdes sem proteger nada.
+
+**4.0.1 Migration `1700000010000-RlsReusedConnectionFix`**
+
+Reescreve as 7 políticas de RLS existentes trocando `current_setting('app.current_company_id', true)` por
+`NULLIF(current_setting('app.current_company_id', true), '')` **antes** do cast `::uuid`. Alcança:
+`tenant_isolation_users` (com o ramo `… IS NULL`, que também precisa do `NULLIF`, senão as linhas do
+`master_admin` — `companyId` NULL — ficam invisíveis em vez de dar erro), `tenant_isolation_products`,
+`tenant_isolation_losses`, `tenant_isolation_import_jobs`, `tenant_isolation_loss_reasons`,
+`tenant_isolation_loss_locations`, `tenant_isolation_company_monthly_revenue` (confirmado por grep em
+todas as migrations que definem política — não há nenhuma outra). `down()` restaura o comportamento
+original (com o bug), mesmo padrão de "melhor esforço" já usado nas migrations deste projeto.
+
+Não cria tabela nem mexe em `GRANT`/`FORCE` — só troca a expressão das 7 políticas já existentes.
+
+**4.0.2 Hardening do harness (pendências da etapa 1.1)**
+- Módulo único de entidades `src/database/entities.ts`, exportando o array hoje duplicado em
+  `app.module.ts` (fonte da verdade, 8 entidades) e `data-source.ts` (defasado, falta
+  `CompanyMonthlyRevenue`); `src/test-utils/test-db.ts` (`TEST_ENTITIES`) passa a importar do mesmo lugar.
+  Sem isso, a 1.2.2 criaria uma 4ª cópia e a lista divergiria mais cedo ou mais tarde.
+- `test-db-lifecycle.int-spec.ts`: asserir `rolsuper = false` e `rolbypassrls = false` (via `pg_roles`)
+  tanto do dono (`inventory_saas_test_owner`) quanto do role de runtime (`inventory_saas_app`). Hoje o
+  teste só confere o nome do dono e `relforcerowsecurity`; um role pré-existente criado com `BYPASSRLS`
+  deixaria **todos** os testes de RLS verdes sem proteger nada.
+- `rls-isolation.int-spec.ts`: controle positivo no teste de `WITH CHECK` — a empresa A **consegue**
+  gravar um produto em nome dela mesma (hoje só se testa que falha em nome da B); sem o controle
+  positivo, uma política quebrada por outro motivo (ex.: falta de `GRANT INSERT`) também faria o teste
+  "passar" pela razão errada.
+- `test-db.ts`: pelo menos um teste que exercita `getTenantManager()` **dentro** de `withTenant` (hoje
+  nenhum teste do harness lê o manager via `tenantStorage`, só recebe o `manager` do callback).
+- `test-db-lifecycle.ts`: `queryWith` passa a assertar `credentials.database` (não só `cfg.database`,
+  que hoje são sempre idênticos, mas a asserção vira teatro se algum dia divergirem).
+- **Un-skip do F18:** depois da migration, em `rls-isolation.int-spec.ts` apagar o teste irmão
+  (`it('F18 (estado atual): …')`) e voltar o `it.failing('conexão reutilizada: …')` para `it(...)` — ele
+  deve passar de verdade agora.
+
+**Testes (TDD):**
+- Integração: `it.failing` vira `it()` e passa; requisição sem tenant (`master_admin`) numa conexão que
+  já serviu outro tenant não lança mais `invalid input syntax for type uuid`; `users` com `companyId
+  NULL` continua visível só para sessão sem tenant, mesmo em conexão reaproveitada (regressão do ramo
+  `IS NULL`); `rolsuper`/`rolbypassrls` do dono e do role de runtime; controle positivo do `WITH CHECK`.
+- **Regra do módulo de entidades:** teste (unitário ou de integração leve) que falha se `app.module.ts`,
+  `data-source.ts` e `test-db.ts` não importarem do mesmo array — evita que a duplicação volte.
+
+**Pronto quando:** o teste "conexão reutilizada" do F18 passa como `it()` normal (sem `it.failing`); as
+três entidades duplicadas viram uma só; e os testes de RLS não ficam mais verdes "pela razão errada".
+
+---
+
+### 4.1 Migrations (sub-etapa 1.2.2)
+
+**`1700000011000-ProductPriceHistory`**
 ```sql
 CREATE TABLE "product_price_history" (
   "id"              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -172,7 +237,10 @@ CREATE TABLE "product_price_history" (
 );
 CREATE INDEX "idx_price_history_product_valid"
   ON "product_price_history" ("productId", "validFrom" DESC, "seq" DESC);
--- RLS: ENABLE + FORCE + política tenant_isolation_product_price_history (USING/WITH CHECK)
+-- RLS: ENABLE + FORCE + política tenant_isolation_product_price_history — USING/WITH CHECK com
+-- "companyId" = NULLIF(current_setting('app.current_company_id', true), '')::uuid (mesma correção
+-- do F18 aplicada em 1700000010000-RlsReusedConnectionFix na sub-etapa 1.2.1; NÃO copiar o padrão
+-- antigo current_setting(...)::uuid sem o NULLIF das migrations anteriores a essa correção)
 -- GRANT SELECT, INSERT (append-only) ao role inventory_saas_app, se existir.
 ```
 - Função + trigger em `products`:
@@ -183,7 +251,7 @@ CREATE INDEX "idx_price_history_product_valid"
 - **Backfill:** uma linha por produto existente com `validFrom = products."createdAt"` e os valores
   **atuais** (o passado real é irrecuperável). Executado dentro do padrão de backfill sob FORCE RLS (RK1).
 
-**`1700000011000-LossValuationSnapshot`**
+**`1700000012000-LossValuationSnapshot`**
 ```sql
 ALTER TABLE "losses"
   ADD COLUMN "unitPriceAtLoss" numeric(12,2),
@@ -204,11 +272,11 @@ Ordem: o `NOT NULL` é verificado **depois** dos triggers `BEFORE`, então o tri
 preencher. Fora de um contexto de tenant o `SELECT` do trigger não enxerga o produto (RLS) e o `INSERT`
 falha alto — comportamento desejado.
 
-### 4.2 Backend
+### 4.2 Backend (sub-etapa 1.2.3)
 
-- **Entidades:** `ProductPriceHistory` (nova; registrar em `app.module.ts` **e** em `data-source.ts`,
-  que já está defasado: falta `CompanyMonthlyRevenue`); `Loss` ganha `unitPriceAtLoss`, `unitCostAtLoss`,
-  `valuationSource` (união TS dos 5 valores).
+- **Entidades:** `ProductPriceHistory` (nova; registrar em `src/database/entities.ts` — lista única
+  consumida por `app.module.ts`, `data-source.ts` e `test-utils/test-db.ts` desde a sub-etapa 1.2.1);
+  `Loss` ganha `unitPriceAtLoss`, `unitCostAtLoss`, `valuationSource` (união TS dos 5 valores).
 - **`losses-valuation.ts`** (novo):
   `resolveLossValuation(manager, product, occurredAt)` → `{ unitPrice, unitCost, source }`:
   1. última linha do histórico com `validFrom <= occurredAt` (`ORDER BY validFrom DESC, seq DESC`);
@@ -231,11 +299,11 @@ falha alto — comportamento desejado.
 - **Endpoint novo (útil já nesta etapa):** `GET /products/:id/price-history` (gerente) → últimas 100
   linhas, mais recente primeiro.
 
-### 4.3 Web (mínimo)
+### 4.3 Web (mínimo, sub-etapa 1.2.4)
 - Diálogo de edição do produto ganha a linha do tempo de preços (lista simples: data, preço, custo,
   quem alterou, origem). Nenhuma outra tela muda.
 
-### 4.4 Testes (TDD — escrever primeiro e ver falhar)
+### 4.4 Testes (sub-etapas 1.2.2–1.2.3, TDD — escrever primeiro e ver falhar)
 
 Unitários (`*.spec.ts`, `manager` mockado, no estilo atual):
 - `resolveLossValuation`: preço vigente na data; data anterior à 1ª linha usa a mais antiga; sem
@@ -248,9 +316,10 @@ Unitários (`*.spec.ts`, `manager` mockado, no estilo atual):
 Integração (`*.int-spec.ts`, Postgres real, role de runtime):
 - **Trigger de histórico:** criar produto gera 1 linha; mudar preço gera outra; regravar o mesmo valor
   **não** gera; `source`/`changedByUserId` vêm das variáveis de sessão; RLS isola empresas.
-- **Backfill:** migrar até 9000, semear produtos e perdas legados como superusuário, rodar 10000/11000
-  como dono não superusuário; toda perda ganha snapshot `backfill_current` com o preço atual; todo
-  produto ganha 1 linha de histórico. (Falha se o padrão RK1 não funcionar.)
+- **Backfill:** migrar até 10000 (inclui a correção do F18 da sub-etapa 1.2.1), semear produtos e perdas
+  legados como superusuário, rodar 11000/12000 como dono não superusuário; toda perda ganha snapshot
+  `backfill_current` com o preço atual; todo produto ganha 1 linha de histórico. (Falha se o padrão RK1
+  não funcionar.)
 - **Trigger de segurança:** `INSERT` de perda sem os campos ⇒ `fallback_current` com o preço atual;
   fora de tenant ⇒ erro.
 - **Regressão F1 ponta a ponta:** registrar perda, mudar o preço do produto, `reportSummary`/
