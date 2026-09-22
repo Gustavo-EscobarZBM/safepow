@@ -1,5 +1,5 @@
 import { getTestDbConfig, TestDbConfig } from './test-db-config';
-import { queryAsAdmin, queryAsOwner } from './test-db-lifecycle';
+import { queryAsAdmin, queryAsOwner, queryWith } from './test-db-lifecycle';
 
 // Porta 1: nada escuta nela. Se a trava um dia regredir, o teste falha em vez de
 // chegar a conectar em algum Postgres real (o banco de desenvolvimento, por exemplo).
@@ -22,5 +22,12 @@ describe('trava de banco de teste nas consultas do harness', () => {
 
   it('queryAsOwner recusa uma config que aponta para um banco que não é de teste', async () => {
     await expect(queryAsOwner(devDbConfig, 'SELECT 1')).rejects.toThrow(/_test/);
+  });
+
+  it('queryWith recusa quando credentials.database diverge de cfg.database (mesmo com cfg.database válido)', async () => {
+    const cfg = getTestDbConfig(undefined, ENV); // cfg.database = 'inventory_saas_test', válido
+    await expect(
+      queryWith(cfg, { user: cfg.adminUser, password: cfg.adminPassword, database: 'inventory_saas' }, 'SELECT 1', []),
+    ).rejects.toThrow(/_test/);
   });
 });

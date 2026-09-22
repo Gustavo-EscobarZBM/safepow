@@ -48,4 +48,20 @@ describe('harness — banco de teste, migrations em etapas e privilégios', () =
     );
     expect(privileges).toEqual({ select: true, insert: true, update: true, delete: true, truncate: false });
   });
+
+  it('dono e role de runtime não têm superusuário nem BYPASSRLS', async () => {
+    await createTestDatabase(cfg);
+
+    const roles = await queryAsAdmin(
+      cfg,
+      `SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = ANY($1) ORDER BY rolname`,
+      [[TEST_OWNER_ROLE, cfg.appUser]],
+    );
+
+    expect(roles).toHaveLength(2);
+    for (const role of roles) {
+      expect(role.rolsuper).toBe(false);
+      expect(role.rolbypassrls).toBe(false);
+    }
+  });
 });

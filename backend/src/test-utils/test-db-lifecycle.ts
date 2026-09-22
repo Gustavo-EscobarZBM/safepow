@@ -25,10 +25,13 @@ async function connect(cfg: TestDbConfig, credentials: Credentials): Promise<Cli
   return client;
 }
 
-async function queryWith(cfg: TestDbConfig, credentials: Credentials, sql: string, params: unknown[]): Promise<any[]> {
+export async function queryWith(cfg: TestDbConfig, credentials: Credentials, sql: string, params: unknown[]): Promise<any[]> {
   // TestDbConfig é um objeto comum: sem esta checagem, `{ ...cfg, database: 'inventory_saas' }`
   // executaria SQL arbitrário como superusuário/dono no banco de desenvolvimento.
-  assertTestDatabaseName(cfg.database);
+  // Asserta o banco que a conexão REALMENTE vai usar (credentials.database), não cfg.database — hoje
+  // os dois são sempre idênticos nas duas chamadas públicas (queryAsAdmin/queryAsOwner), mas a
+  // checagem viraria teatro se um chamador futuro montasse `credentials` com um banco diferente.
+  assertTestDatabaseName(credentials.database);
   const client = await connect(cfg, credentials);
   try {
     return (await client.query(sql, params)).rows;
