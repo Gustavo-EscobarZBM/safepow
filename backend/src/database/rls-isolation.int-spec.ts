@@ -1,3 +1,5 @@
+import { QueryRunner } from 'typeorm';
+import { getTenantManager } from '../common/tenant/tenant-storage';
 import { Product } from '../modules/products/product.entity';
 import {
   adminQuery,
@@ -11,29 +13,47 @@ import {
 } from '../test-utils/test-db';
 
 /**
- * Mesma conexão física nas duas transações — como um pool devolvendo a conexão depois de uma
- * requisição de tenant e entregando-a a uma requisição sem tenant (ex.: master_admin, que não
- * define app.current_company_id). Devolve as linhas de `products` vistas pela segunda transação.
+ * Roda `secondTransaction` numa SEGUNDA transação, na MESMA conexão física de `firstTransaction` —
+ * reproduz um pool devolvendo a conexão entre uma requisição de tenant e outra sem tenant (ex.:
+ * master_admin, que nunca chama set_config). Sempre comita a segunda transação.
  */
-async function queryOnReusedConnection(companyId: string): Promise<unknown[]> {
+async function onReusedConnection<T>(
+  firstTransaction: (queryRunner: QueryRunner) => Promise<void>,
+  secondTransaction: (queryRunner: QueryRunner) => Promise<T>,
+): Promise<T> {
   const queryRunner = (await appDataSource()).createQueryRunner();
   await queryRunner.connect();
   try {
     await queryRunner.startTransaction();
-    await queryRunner.query(`SELECT set_config('app.current_company_id', $1, true)`, [companyId]);
+    await firstTransaction(queryRunner);
     await queryRunner.commitTransaction();
 
     await queryRunner.startTransaction();
-    const rows = await queryRunner.query('SELECT id FROM products');
+    const result = await secondTransaction(queryRunner);
     await queryRunner.commitTransaction();
-
-    return rows;
+    return result;
   } catch (error) {
     await queryRunner.rollbackTransaction().catch(() => undefined);
     throw error;
   } finally {
     await queryRunner.release();
   }
+}
+
+function queryOnReusedConnection(companyId: string): Promise<unknown[]> {
+  return onReusedConnection(
+    (qr) => qr.query(`SELECT set_config('app.current_company_id', $1, true)`, [companyId]),
+    (qr) => qr.query('SELECT id FROM products'),
+  );
+}
+
+/** Insere um usuário MASTER_ADMIN (companyId NULL) direto no banco — só para o teste abaixo. */
+async function seedMasterAdmin(): Promise<string> {
+  const rows = await adminQuery(
+    `INSERT INTO users (name, email, "passwordHash", role) VALUES ($1, $2, 'x', 'master_admin') RETURNING id`,
+    ['Admin de teste', 'master-admin-f18@teste.local'],
+  );
+  return rows[0].id;
 }
 
 describe('RLS multi-tenant — a base que todo o SP1 assume', () => {
@@ -62,6 +82,26 @@ describe('RLS multi-tenant — a base que todo o SP1 assume', () => {
     ).rejects.toThrow(/row-level security/i);
   });
 
+  it('a empresa A consegue gravar produto em nome dela mesma (controle positivo do WITH CHECK)', async () => {
+    const a = await seedCompany('Empresa A');
+
+    await withTenant({ companyId: a }, (manager) =>
+      manager.query(`INSERT INTO products ("companyId", barcode, name) VALUES ($1, 'ok-5555', 'Produto válido')`, [a]),
+    );
+
+    const [{ n }] = await adminQuery('SELECT count(*)::int AS n FROM products WHERE barcode = $1', ['ok-5555']);
+    expect(n).toBe(1);
+  });
+
+  it('getTenantManager() dentro de withTenant devolve o manager da mesma transação (contrato do middleware)', async () => {
+    const a = await seedCompany('Empresa Contexto');
+    await seedProduct({ companyId: a, barcode: '6666' });
+
+    const viaContexto = await withTenant({ companyId: a }, async () => getTenantManager().find(Product));
+
+    expect(viaContexto).toHaveLength(1);
+  });
+
   it('FORCE ROW LEVEL SECURITY vale até para o dono das tabelas', async () => {
     const companyId = await seedCompany('Empresa Dona');
     await seedProduct({ companyId, barcode: '3333' });
@@ -73,11 +113,10 @@ describe('RLS multi-tenant — a base que todo o SP1 assume', () => {
     expect(comoSuperusuario.n).toBe(1); // o dado existe: superusuário ignora RLS
   });
 
-  // F18 (confirmado): numa conexão reaproveitada, current_setting('app.current_company_id', true)
-  // devolve '' (não NULL) e o cast ''::uuid das políticas de RLS falha. Correção proposta (fora da
-  // etapa 1.1, precisa de decisão): recriar as políticas com NULLIF(current_setting(...), '')::uuid.
-  // Quando for corrigido, este teste passará a "falhar" como it.failing — troque para it().
-  it.failing('conexão reutilizada: sem contexto de tenant o role de runtime não recebe erro nem linhas', async () => {
+  // F18, corrigido pela migration RlsReusedConnectionFix1700000010000: numa conexão reaproveitada,
+  // current_setting('app.current_company_id', true) podia devolver '' (não NULL) e o cast ''::uuid
+  // das políticas de RLS falhava. As políticas agora usam NULLIF(..., '') antes do cast.
+  it('conexão reutilizada: sem contexto de tenant o role de runtime não recebe erro nem linhas', async () => {
     const companyId = await seedCompany('Empresa Conexão');
     await seedProduct({ companyId, barcode: '4444' });
 
@@ -86,14 +125,19 @@ describe('RLS multi-tenant — a base que todo o SP1 assume', () => {
     expect(rows).toEqual([]);
   });
 
-  // Fixa o estado ATUAL do F18. O it.failing acima passa com qualquer falha (inclusive um vazamento
-  // de linhas entre tenants, muito pior que o erro de cast); este teste só passa com o erro do F18.
-  // Quando o F18 for corrigido, este teste começa a falhar: apague-o e volte o it.failing para it().
-  it('F18 (estado atual): conexão reutilizada sem tenant falha com "invalid input syntax for type uuid"', async () => {
-    const companyId = await seedCompany('Empresa Conexão');
-    await seedProduct({ companyId, barcode: '4444' });
+  // Regressão específica do ramo "... IS NULL" da política de users (o NULLIF isolado não bastaria: ''
+  // IS NULL é falso, então sem o segundo NULLIF as linhas de master_admin ficariam invisíveis numa
+  // conexão reaproveitada, em vez de continuarem visíveis só para sessão sem tenant).
+  it('conexão reutilizada: linhas de master_admin (companyId NULL) continuam visíveis para sessão sem tenant', async () => {
+    const companyId = await seedCompany('Empresa Conexão Users');
+    const masterAdminId = await seedMasterAdmin();
 
-    await expect(queryOnReusedConnection(companyId)).rejects.toThrow(/invalid input syntax for type uuid/);
+    const rows = await onReusedConnection<{ id: string }[]>(
+      (qr) => qr.query(`SELECT set_config('app.current_company_id', $1, true)`, [companyId]),
+      (qr) => qr.query('SELECT id FROM users WHERE id = $1', [masterAdminId]),
+    );
+
+    expect(rows).toHaveLength(1);
   });
 
   it('appDataSource: chamadas concorrentes no primeiro uso devolvem a mesma conexão (sem pool órfão)', async () => {
