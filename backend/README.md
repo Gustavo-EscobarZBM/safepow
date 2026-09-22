@@ -121,15 +121,16 @@ curl -X PATCH http://localhost:3000/api/master/companies/<COMPANY_ID>/status \
 npm test
 ```
 
-23 testes cobrindo: `RolesGuard`, `SubscriptionGuard` (bloqueio por assinatura),
-validação do `CreateLossDto`, `CompaniesService.updateStatus`, e — o mais
-importante — a **idempotência real da sincronização offline**
-(`losses.service.spec.ts`), que exercita o `AsyncLocalStorage` de contexto de
-tenant de verdade, não apenas mocks isolados.
+106 testes unitários em 17 suítes, cobrindo, entre outros: `RolesGuard`,
+`SubscriptionGuard` (bloqueio por assinatura), validação do `CreateLossDto`,
+`CompaniesService.updateStatus`, e — o mais importante — a **idempotência real
+da sincronização offline** (`losses.service.spec.ts`), que exercita o
+`AsyncLocalStorage` de contexto de tenant de verdade, não apenas mocks isolados.
 
-São testes unitários (sem banco/Redis reais). Testes de integração contra um
-Postgres/Redis de verdade são o próximo passo natural — não foi possível
-rodá-los neste ambiente de desenvolvimento (ver nota abaixo).
+São testes unitários (sem banco/Redis reais). Os testes de integração contra um
+Postgres de verdade (RLS, triggers, migrations, middleware) existem e rodam com
+`npm run test:int` — ver a seção **Testes**, ao final deste arquivo. Ainda não
+há testes de integração contra Redis (fila de importação) nem E2E.
 
 ## O que ainda NÃO está implementado
 
@@ -139,24 +140,45 @@ rodá-los neste ambiente de desenvolvimento (ver nota abaixo).
 - Rotina para promover `past_due` prolongado para `blocked` automaticamente
   (hoje isso fica a cargo de um segundo webhook do Stripe ou de ação manual
   pelo Painel Master).
-- Testes de integração (com banco/Redis reais) e testes E2E.
+- Testes de integração contra Redis (fila de importação BullMQ) e testes E2E.
+  (Os testes de integração contra Postgres real já existem: ver a seção
+  **Testes**, ao final.)
 - Paginação nos endpoints de listagem (hoje `losses` limita a 500 registros;
   `products`, `users` e `master/companies` não paginam).
 
-## Nota importante sobre o ambiente onde este código foi gerado
+## Nota histórica sobre o ambiente onde este código foi gerado
 
-Não havia acesso a um PostgreSQL, Redis ou MinIO reais no ambiente em que este
-backend foi desenvolvido (sem Docker disponível e o mirror de pacotes do
-Ubuntu necessário para instalar Postgres via `apt` estava indisponível). O
-código foi validado com:
-- `npx tsc --noEmit` (zero erros de tipo, em todas as rodadas de desenvolvimento)
-- `npm run build` (build de produção completo)
-- `npm test` (23 testes unitários passando, incluindo um teste que exercita o
-  `AsyncLocalStorage` real do contexto de tenant, não apenas mocks)
-- Boot real da aplicação NestJS (toda a árvore de dependências/módulos sobe
-  corretamente — incluindo BullMQ, uploads e billing — falhando apenas na
-  conexão com Postgres/Redis, que não existem neste ambiente — esperado)
+Na primeira geração deste backend não havia PostgreSQL, Redis nem MinIO reais
+no ambiente (sem Docker disponível, e o mirror de pacotes do Ubuntu necessário
+para instalar Postgres via `apt` estava indisponível). Naquela época o código
+foi validado só com `npx tsc --noEmit`, `npm run build`, `npm test` (incluindo um
+teste que exercita o `AsyncLocalStorage` real do contexto de tenant) e o boot
+da aplicação NestJS.
 
-**Antes do primeiro uso real, rode `docker compose up` e siga o fluxo de teste
-acima para validar o comportamento fim a fim com um banco de dados de verdade**,
-principalmente a Row Level Security (é a parte mais sensível a erros sutis).
+Isso mudou para tudo que depende do Postgres: a Row Level Security, o
+`TenantContextMiddleware` (transação por requisição, com commit antes de a
+resposta sair), as migrations e a semântica de `updatedAt` são cobertos por
+testes de integração contra um Postgres real, com `npm run test:int` — ver a
+seção **Testes**, ao final deste arquivo.
+
+Continuam **sem** cobertura de integração: Redis/BullMQ (fila de importação),
+uploads para MinIO/S3, cobrança (billing/Stripe) e testes E2E.
+
+## Testes
+
+- `npm test` — testes **unitários** (rápidos, sem Docker; `manager` mockado).
+- `npm run test:int` — testes de **integração** contra Postgres real (RLS, triggers, migrations, middleware). Requer o Postgres do compose: `docker compose up -d postgres` (porta do host no `.env`, hoje 5433).
+
+Os testes de integração usam **somente** o banco `inventory_saas_test`, recriado do zero a cada execução (dono `inventory_saas_test_owner`, **sem** superusuário, para que `FORCE ROW LEVEL SECURITY` valha como em bancos gerenciados; o role de runtime `inventory_saas_app` é quem executa as consultas). O banco de desenvolvimento **nunca** é tocado: o harness recusa qualquer nome que não termine em `_test` e não lê `DB_NAME` do `.env`.
+
+Segurança do harness:
+
+- O harness só aceita `DB_HOST` = `localhost`, `127.0.0.1` ou `::1`, a menos que `TEST_DB_ALLOW_REMOTE=1` esteja definido: o role de teste tem senha fixa e o harness apaga/cria bancos, então apontá-lo para um servidor remoto exige um opt-in explícito.
+- `queryAsAdmin`/`queryAsOwner` conferem de novo, a cada chamada, que o nome do banco termina em `_test`.
+- **Nunca rode `npm run test:int` duas vezes ao mesmo tempo:** o `globalSetup` recria o banco compartilhado `inventory_saas_test` a cada execução, e uma execução derruba o banco da outra.
+
+Convenções:
+
+- Arquivos de integração terminam em `.int-spec.ts` (com hífen; `.spec.ts` é unitário).
+- Helpers em `src/test-utils/`: `withTenant()` (mesma mecânica do `TenantContextMiddleware`), `seedCompany()`, `seedProduct()`, `truncateAll()`, `adminQuery()` (superusuário, ignora RLS) e `ownerQuery()`. Todo arquivo que usa `appDataSource()` deve chamar `closeTestConnections()` no `afterAll`.
+- Para testar um backfill, crie um banco próprio (`createTestDatabase(cfg, { migrateUpTo })`, nome terminando em `_test`), semeie dados "legados" como superusuário e aplique o restante com `runMigrations(cfg)`. Ver `src/test-utils/test-db-lifecycle.int-spec.ts`.
