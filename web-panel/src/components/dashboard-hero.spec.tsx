@@ -41,7 +41,24 @@ describe('DashboardHero', () => {
     expect(screen.getByText(/25,0% vs\. mês anterior/)).toBeInTheDocument();
   });
 
-  it('colors a worsening variation with a red that stays legible on the dark hero band in both themes', () => {
+  it('follows the app theme: a light surface by default and the dark brand band only in dark mode', () => {
+    const { container } = render(
+      <DashboardHero
+        totalFinancialLoss={1000}
+        previousMonthTotal={800}
+        variationPercent={25}
+        trendData={[]}
+        projected={null}
+      />,
+    );
+
+    const hero = container.firstElementChild;
+    expect(hero).toHaveClass('bg-accent', 'text-foreground', 'dark:bg-sidebar');
+    expect(hero).not.toHaveClass('bg-sidebar');
+    expect(hero).not.toHaveClass('text-sidebar-foreground');
+  });
+
+  it('colors a worsening variation with a red that is legible on both the light and the dark surface', () => {
     render(
       <DashboardHero
         totalFinancialLoss={1000}
@@ -53,7 +70,8 @@ describe('DashboardHero', () => {
     );
 
     const badge = screen.getByText(/25,0% vs\. mês anterior/);
-    expect(badge).toHaveClass('text-red-400');
+    expect(badge).toHaveClass('text-red-700', 'dark:text-red-400');
+    expect(badge).not.toHaveClass('text-red-400');
     expect(badge).not.toHaveClass('text-destructive');
   });
 
@@ -68,7 +86,7 @@ describe('DashboardHero', () => {
       />,
     );
 
-    expect(screen.getByText(/10,0% vs\. mês anterior/)).toHaveClass('text-success');
+    expect(screen.getByText(/10,0% vs\. mês anterior/)).toHaveClass('text-success-foreground');
   });
 
   it('shows the projected month-end line only when there is a positive projection', () => {

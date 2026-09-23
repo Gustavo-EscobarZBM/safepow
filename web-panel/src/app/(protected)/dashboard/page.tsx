@@ -182,7 +182,7 @@ export default function DashboardPage() {
   const periodFilters = (
     <div className="flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-end">
       <div className="space-y-1.5">
-        <Label className="text-sidebar-foreground/70">Período rápido</Label>
+        <Label className="text-foreground/70">Período rápido</Label>
         <Tabs value={quickPeriod ?? undefined} onValueChange={handleQuickPeriod}>
           <TabsList>
             {QUICK_PERIODS.map((preset) => (
@@ -194,11 +194,11 @@ export default function DashboardPage() {
         </Tabs>
       </div>
       <div className="space-y-1.5">
-        <Label className="text-sidebar-foreground/70">De</Label>
+        <Label className="text-foreground/70">De</Label>
         <div className="relative w-fit">
           <Input
             type="date"
-            className="w-auto pr-9"
+            className="w-auto border-foreground pr-9 dark:border-input"
             value={from}
             onChange={(e) => {
               setQuickPeriod(null);
@@ -209,11 +209,11 @@ export default function DashboardPage() {
         </div>
       </div>
       <div className="space-y-1.5">
-        <Label className="text-sidebar-foreground/70">Até</Label>
+        <Label className="text-foreground/70">Até</Label>
         <div className="relative w-fit">
           <Input
             type="date"
-            className="w-auto pr-9"
+            className="w-auto border-foreground pr-9 dark:border-input"
             value={to}
             onChange={(e) => {
               setQuickPeriod(null);
@@ -240,7 +240,7 @@ export default function DashboardPage() {
         </Button>
       )}
       {lastUpdatedAt && (
-        <p className="text-sm text-sidebar-foreground/60 lg:ml-auto">
+        <p className="text-sm text-foreground/70 lg:ml-auto">
           Dados atualizados hoje às{' '}
           {lastUpdatedAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
         </p>

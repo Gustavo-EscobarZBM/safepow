@@ -81,6 +81,20 @@ describe('DashboardPage', () => {
     expect(screen.queryByRole('button', { name: /tentar novamente/i })).toBeNull();
   });
 
+  it('draws a strong, always-visible border around the period date fields', async () => {
+    mockHappyPath();
+    render(<DashboardPage />);
+
+    await screen.findByTestId('hero-value');
+
+    const dateInputs = document.querySelectorAll('input[type="date"]');
+    expect(dateInputs).toHaveLength(2);
+    dateInputs.forEach((input) => {
+      // the default `border-input` is almost invisible on the light hero surface
+      expect(input).toHaveClass('border-foreground');
+    });
+  });
+
   it('shows a retry button when the initial load fails, and recovers on retry', async () => {
     (api.get as ReturnType<typeof vi.fn>).mockImplementation(async (path: string) => {
       if (path.startsWith('losses/reports/summary')) throw new Error('Erro de rede.');

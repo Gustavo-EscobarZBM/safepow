@@ -28,7 +28,7 @@ function HeroVariation({ percent }: { percent: number }) {
     <span
       className={cn(
         'inline-flex items-center gap-1 font-medium',
-        isFlat ? 'text-sidebar-foreground/70' : isWorse ? 'text-red-400' : 'text-success',
+        isFlat ? 'text-foreground/70' : isWorse ? 'text-red-700 dark:text-red-400' : 'text-success-foreground',
       )}
     >
       <Icon className="size-3.5" />
@@ -50,19 +50,19 @@ export function DashboardHero({
   const points = buildSparklinePoints(sparkValues, SPARK_WIDTH, SPARK_HEIGHT);
 
   return (
-    <div className="overflow-hidden rounded-xl bg-sidebar p-6 text-sidebar-foreground print:bg-transparent print:text-foreground print:ring-1 print:ring-border sm:p-8">
+    <div className="overflow-hidden rounded-xl bg-accent p-6 text-foreground ring-1 ring-border dark:bg-sidebar dark:ring-0 print:bg-transparent print:ring-1 print:ring-border sm:p-8">
       <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-sm text-sidebar-foreground/70">Prejuízo total no mês (venda)</p>
+          <p className="text-sm text-foreground/70">Prejuízo total no mês (venda)</p>
           <p className="font-display text-4xl sm:text-5xl" data-testid="hero-value">
             {formatBRL(animatedValue)}
           </p>
-          <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-sidebar-foreground/80">
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-foreground/80">
             <span data-testid="hero-comparison">Mês anterior: {formatBRL(previousMonthTotal)}</span>
             {variationPercent !== null && <HeroVariation percent={variationPercent} />}
           </div>
           {projected && projected.totalFinancialLoss > 0 && (
-            <p className="mt-2 text-sm text-sidebar-foreground/70" data-testid="hero-projected">
+            <p className="mt-2 text-sm text-foreground/70" data-testid="hero-projected">
               Projeção de fechamento: {formatBRL(projected.totalFinancialLoss)}
               {projected.financialVariationPercent !== null && (
                 <>
@@ -82,7 +82,7 @@ export function DashboardHero({
         {points.length > 0 && (
           <svg
             viewBox={`0 0 ${SPARK_WIDTH} ${SPARK_HEIGHT}`}
-            className="h-12 w-full max-w-[220px] text-sidebar-primary print:hidden"
+            className="h-12 w-full max-w-[220px] text-primary print:hidden"
             role="img"
             aria-label="Tendência do prejuízo no período"
           >
@@ -98,7 +98,7 @@ export function DashboardHero({
         )}
       </div>
 
-      {filters && <div className="mt-6 border-t border-sidebar-border/60 pt-4">{filters}</div>}
+      {filters && <div className="mt-6 border-t border-foreground/15 pt-4">{filters}</div>}
     </div>
   );
 }
