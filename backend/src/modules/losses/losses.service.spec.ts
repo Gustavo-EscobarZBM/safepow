@@ -383,6 +383,62 @@ describe('LossesService — valor congelado (SP1, sub-etapa 1.2.3)', () => {
     expect(result).toMatchObject({ unitPriceAtLoss: 25, unitCostAtLoss: 15, valuationSource: 'snapshot' });
   });
 
+  it('update com occurredAt truncado no minuto (datetime-local do painel) é eco do valor atual: não recalcula nem mexe na data', async () => {
+    // Perda do app: DateTime.now() tem segundos e milissegundos; o <input type="datetime-local"> do
+    // painel devolve a mesma data cortada no minuto, mesmo quando o gerente só trocou o motivo.
+    const original = new Date('2026-09-10T15:00:45.123Z');
+    const loss = {
+      id: 'loss-1',
+      productId: PRODUCT_ID,
+      occurredAt: original,
+      unitPriceAtLoss: 25,
+      unitCostAtLoss: 15,
+      valuationSource: 'backfill_current',
+    };
+    const manager = {
+      findOne: jest
+        .fn()
+        .mockResolvedValueOnce(loss)
+        .mockResolvedValueOnce({ id: REASON_ID }),
+      save: jest.fn().mockImplementation((data) => Promise.resolve(data)),
+    };
+
+    const result = await runWithTenantContext(manager, () =>
+      new LossesService().update('loss-1', { reasonId: REASON_ID, occurredAt: '2026-09-10T15:00:00.000Z' }),
+    );
+
+    // 1ª chamada: a perda; 2ª: validação do motivo. Nenhuma consulta de produto/histórico.
+    expect(manager.findOne).toHaveBeenCalledTimes(2);
+    expect(result.occurredAt).toEqual(original);
+    expect(result).toMatchObject({ unitPriceAtLoss: 25, unitCostAtLoss: 15, valuationSource: 'backfill_current' });
+  });
+
+  it('update com occurredAt em OUTRO minuto recalcula normalmente, mesmo vindo truncado', async () => {
+    const loss = {
+      id: 'loss-1',
+      productId: PRODUCT_ID,
+      occurredAt: new Date('2026-09-10T15:00:45.123Z'),
+      unitPriceAtLoss: 25,
+      unitCostAtLoss: 15,
+      valuationSource: 'snapshot',
+    };
+    const manager = {
+      findOne: jest
+        .fn()
+        .mockResolvedValueOnce(loss)
+        .mockResolvedValueOnce({ id: PRODUCT_ID, unitPrice: '99.00', costPrice: '88.00' })
+        .mockResolvedValueOnce({ unitPrice: '18.00', costPrice: '9.00' }),
+      save: jest.fn().mockImplementation((data) => Promise.resolve(data)),
+    };
+
+    const result = await runWithTenantContext(manager, () =>
+      new LossesService().update('loss-1', { occurredAt: '2026-09-10T15:01:00.000Z' }),
+    );
+
+    expect(result.occurredAt).toEqual(new Date('2026-09-10T15:01:00.000Z'));
+    expect(result).toMatchObject({ unitPriceAtLoss: 18, unitCostAtLoss: 9 });
+  });
+
   it('update que muda occurredAt recalcula com o preço vigente na nova data', async () => {
     const loss = {
       id: 'loss-1',

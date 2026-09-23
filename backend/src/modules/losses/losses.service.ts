@@ -18,6 +18,19 @@ import { projectMonthEnd } from './losses-projection';
 import { computeShrinkageRate } from './losses-shrinkage';
 import { computeSuspiciousPatterns, type SuspiciousPatternEntry } from './losses-suspicious-patterns';
 
+/**
+ * O <input type="datetime-local"> do painel devolve a data cortada no minuto. Se o valor pedido é
+ * exatamente o atual truncado no minuto, o gerente não mexeu na data — só reenviou o formulário. Tratar
+ * isso como mudança apagaria os segundos da perda e recalcularia o valor congelado sem ninguém pedir.
+ */
+function isMinuteTruncatedEcho(requested: Date, current: Date): boolean {
+  const MINUTE_MS = 60_000;
+  return (
+    requested.getTime() % MINUTE_MS === 0 &&
+    Math.floor(current.getTime() / MINUTE_MS) === requested.getTime() / MINUTE_MS
+  );
+}
+
 @Injectable()
 export class LossesService {
   /**
@@ -102,7 +115,10 @@ export class LossesService {
     }
     if (dto.quantity !== undefined) loss.quantity = dto.quantity;
     if (dto.description !== undefined) loss.description = dto.description || null;
-    if (dto.occurredAt !== undefined) loss.occurredAt = new Date(dto.occurredAt);
+    if (dto.occurredAt !== undefined) {
+      const requested = new Date(dto.occurredAt);
+      if (!isMinuteTruncatedEcho(requested, new Date(loss.occurredAt))) loss.occurredAt = requested;
+    }
 
     // O valor congelado só muda se mudar O QUE foi perdido ou QUANDO (spec 4.2). Compara valores, não
     // presença no DTO: o formulário do painel reenvia todos os campos, inclusive os inalterados.
