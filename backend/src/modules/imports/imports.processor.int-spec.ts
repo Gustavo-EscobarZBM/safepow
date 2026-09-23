@@ -64,4 +64,35 @@ describe('ImportsProcessor — histórico de preço registra a origem "import"',
     expect(history).toHaveLength(2);
     expect(history[1]).toMatchObject({ unitPrice: '15.00', source: 'import' });
   });
+
+  it('produto ARQUIVADO que volta na planilha é reativado, e a mudança de preço fica com source = import', async () => {
+    const companyId = await seedCompany('Empresa Reativação');
+    const productId = await seedProduct({ companyId, barcode: '8101', unitPrice: 10 });
+    await adminQuery(`UPDATE products SET "isActive" = false WHERE id = $1`, [productId]);
+    const importJobId = (
+      await adminQuery(
+        `INSERT INTO import_jobs ("companyId", "fileName", "storageKey") VALUES ($1, 'p.xlsx', 'k') RETURNING id`,
+        [companyId],
+      )
+    )[0].id;
+    const buffer = await spreadsheet([['8101', 'Voltou ao catálogo', 12]]);
+    const storage = { downloadBuffer: async () => buffer } as unknown as StorageService;
+
+    await new ImportsProcessor(await appDataSource(), storage).process({
+      data: {
+        importJobId,
+        companyId,
+        storageKey: 'k',
+        mapping: { barcodeColumn: 'Codigo', nameColumn: 'Nome', unitPriceColumn: 'Preco' },
+      },
+    } as Job<ProductImportJobData>);
+
+    const [product] = await adminQuery(`SELECT "isActive", name FROM products WHERE id = $1`, [productId]);
+    expect(product).toEqual({ isActive: true, name: 'Voltou ao catálogo' });
+    const history = await adminQuery(
+      `SELECT "unitPrice", source FROM product_price_history WHERE "productId" = $1 ORDER BY seq DESC LIMIT 1`,
+      [productId],
+    );
+    expect(history[0]).toMatchObject({ unitPrice: '12.00', source: 'import' });
+  });
 });

@@ -113,6 +113,9 @@ export class ImportsProcessor extends WorkerHost {
               existing.name = name;
               existing.sku = sku;
               existing.unitPrice = unitPrice;
+              // Produto arquivado que volta na planilha do ERP volta ao catálogo (F2/F9c). O relatório
+              // de "reativados" da importação fica para o SP3.
+              existing.isActive = true;
               await manager.save(existing);
             } else {
               const product = manager.create(Product, {
