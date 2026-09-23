@@ -299,3 +299,139 @@ describe('LossesService.findPendingVerification / verify (conferência de descar
     );
   });
 });
+
+describe('LossesService — valor congelado (SP1, sub-etapa 1.2.3)', () => {
+  const OCCURRED_AT = '2026-09-10T15:00:00.000Z';
+
+  it('create grava o preço vigente em occurredAt (não o preço atual do produto)', async () => {
+    const manager = {
+      findOne: jest.fn(),
+      create: jest.fn().mockImplementation((_entity, data) => data),
+      save: jest.fn().mockImplementation((data) => Promise.resolve({ id: 'loss-1', ...data })),
+    };
+    // Ordem: loss existente (null), produto, motivo, local, empresa, linha vigente do histórico.
+    manager.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: PRODUCT_ID, name: 'Arroz 5kg', unitPrice: '30.00', costPrice: '20.00' })
+      .mockResolvedValueOnce({ id: REASON_ID })
+      .mockResolvedValueOnce({ id: LOCATION_ID })
+      .mockResolvedValueOnce({ id: COMPANY_ID, lossVerificationEnabled: false })
+      .mockResolvedValueOnce({ unitPrice: '25.00', costPrice: '15.00' });
+
+    const result = await runWithTenantContext(manager, () =>
+      new LossesService().create({
+        clientGeneratedId: CLIENT_GENERATED_ID,
+        productId: PRODUCT_ID,
+        locationId: LOCATION_ID,
+        reasonId: REASON_ID,
+        occurredAt: OCCURRED_AT,
+      }),
+    );
+
+    expect(result).toMatchObject({ unitPriceAtLoss: 25, unitCostAtLoss: 15, valuationSource: 'snapshot' });
+    // A consulta ao histórico usou occurredAt — não "agora".
+    const historyQuery = manager.findOne.mock.calls[5][1];
+    expect(historyQuery.where.validFrom.value).toEqual(new Date(OCCURRED_AT));
+  });
+
+  it('update que muda só quantidade/descrição NÃO recalcula o valor congelado', async () => {
+    const loss = {
+      id: 'loss-1',
+      productId: PRODUCT_ID,
+      occurredAt: new Date(OCCURRED_AT),
+      quantity: 1,
+      unitPriceAtLoss: 25,
+      unitCostAtLoss: 15,
+      valuationSource: 'snapshot',
+    };
+    const manager = {
+      findOne: jest.fn().mockResolvedValueOnce(loss),
+      save: jest.fn().mockImplementation((data) => Promise.resolve(data)),
+    };
+
+    const result = await runWithTenantContext(manager, () =>
+      new LossesService().update('loss-1', { quantity: 3, description: 'Corrigido' }),
+    );
+
+    expect(manager.findOne).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ quantity: 3, unitPriceAtLoss: 25, unitCostAtLoss: 15 });
+  });
+
+  it('update com os MESMOS productId/occurredAt (formulário reenviando tudo) NÃO recalcula', async () => {
+    const loss = {
+      id: 'loss-1',
+      productId: PRODUCT_ID,
+      occurredAt: new Date(OCCURRED_AT),
+      unitPriceAtLoss: 25,
+      unitCostAtLoss: 15,
+      valuationSource: 'snapshot',
+    };
+    const manager = {
+      findOne: jest
+        .fn()
+        .mockResolvedValueOnce(loss)
+        .mockResolvedValueOnce({ id: PRODUCT_ID, unitPrice: '99.00', costPrice: '88.00' }),
+      save: jest.fn().mockImplementation((data) => Promise.resolve(data)),
+    };
+
+    const result = await runWithTenantContext(manager, () =>
+      new LossesService().update('loss-1', { productId: PRODUCT_ID, occurredAt: OCCURRED_AT }),
+    );
+
+    // 1ª chamada: a perda; 2ª: validação do produto informado. Nenhuma consulta ao histórico.
+    expect(manager.findOne).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ unitPriceAtLoss: 25, unitCostAtLoss: 15, valuationSource: 'snapshot' });
+  });
+
+  it('update que muda occurredAt recalcula com o preço vigente na nova data', async () => {
+    const loss = {
+      id: 'loss-1',
+      productId: PRODUCT_ID,
+      occurredAt: new Date(OCCURRED_AT),
+      unitPriceAtLoss: 25,
+      unitCostAtLoss: 15,
+      valuationSource: 'snapshot',
+    };
+    const manager = {
+      findOne: jest
+        .fn()
+        .mockResolvedValueOnce(loss)
+        // produto (carregado para o cálculo), depois a linha vigente na nova data
+        .mockResolvedValueOnce({ id: PRODUCT_ID, unitPrice: '99.00', costPrice: '88.00' })
+        .mockResolvedValueOnce({ unitPrice: '18.00', costPrice: '9.00' }),
+      save: jest.fn().mockImplementation((data) => Promise.resolve(data)),
+    };
+
+    const result = await runWithTenantContext(manager, () =>
+      new LossesService().update('loss-1', { occurredAt: '2026-08-01T10:00:00.000Z' }),
+    );
+
+    expect(result).toMatchObject({ unitPriceAtLoss: 18, unitCostAtLoss: 9, valuationSource: 'snapshot' });
+  });
+
+  it('update que muda o produto recalcula com o histórico do produto novo', async () => {
+    const OTHER_PRODUCT_ID = '550e8400-e29b-41d4-a716-446655440009';
+    const loss = {
+      id: 'loss-1',
+      productId: PRODUCT_ID,
+      occurredAt: new Date(OCCURRED_AT),
+      unitPriceAtLoss: 25,
+      unitCostAtLoss: 15,
+      valuationSource: 'snapshot',
+    };
+    const manager = {
+      findOne: jest
+        .fn()
+        .mockResolvedValueOnce(loss)
+        .mockResolvedValueOnce({ id: OTHER_PRODUCT_ID, unitPrice: '7.00', costPrice: '3.00' })
+        .mockResolvedValueOnce({ unitPrice: '6.50', costPrice: '2.50' }),
+      save: jest.fn().mockImplementation((data) => Promise.resolve(data)),
+    };
+
+    const result = await runWithTenantContext(manager, () =>
+      new LossesService().update('loss-1', { productId: OTHER_PRODUCT_ID }),
+    );
+
+    expect(result).toMatchObject({ productId: OTHER_PRODUCT_ID, unitPriceAtLoss: 6.5, unitCostAtLoss: 2.5 });
+  });
+});

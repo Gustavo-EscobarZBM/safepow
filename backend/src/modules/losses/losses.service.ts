@@ -13,6 +13,7 @@ import { QueryLossesDto } from './dto/query-losses.dto';
 import { UpdateLossDto } from './dto/update-loss.dto';
 import { Loss } from './loss.entity';
 import { computeLossAlerts, type LossAlert } from './losses-alerts';
+import { resolveLossValuation } from './losses-valuation';
 import { projectMonthEnd } from './losses-projection';
 import { computeShrinkageRate } from './losses-shrinkage';
 import { computeSuspiciousPatterns, type SuspiciousPatternEntry } from './losses-suspicious-patterns';
@@ -45,6 +46,11 @@ export class LossesService {
 
     const company = await manager.findOne(Company, { where: { id: companyId! } });
 
+    const occurredAt = new Date(dto.occurredAt);
+    // Preço vigente QUANDO a perda ocorreu — uma perda offline sincronizada dias depois, com o preço
+    // alterado no meio, vale o preço daquele dia (F1).
+    const valuation = await resolveLossValuation(manager, product, occurredAt);
+
     const loss = manager.create(Loss, {
       companyId: companyId!,
       clientGeneratedId: dto.clientGeneratedId,
@@ -55,9 +61,12 @@ export class LossesService {
       reasonId: dto.reasonId,
       description: dto.description || null,
       imageUrl: dto.imageUrl ?? null,
-      occurredAt: new Date(dto.occurredAt),
+      occurredAt,
       source: dto.source ?? null,
       requiresVerification: company?.lossVerificationEnabled ?? false,
+      unitPriceAtLoss: valuation.unitPrice,
+      unitCostAtLoss: valuation.unitCost,
+      valuationSource: valuation.source,
     });
     return manager.save(loss);
   }
@@ -72,8 +81,12 @@ export class LossesService {
     const loss = await manager.findOne(Loss, { where: { id } });
     if (!loss) throw new NotFoundException('Perda não encontrada.');
 
+    const previousProductId = loss.productId;
+    const previousOccurredAt = new Date(loss.occurredAt).getTime();
+    let product: Product | null = null;
+
     if (dto.productId !== undefined) {
-      const product = await manager.findOne(Product, { where: { id: dto.productId } });
+      product = await manager.findOne(Product, { where: { id: dto.productId } });
       if (!product) throw new NotFoundException('Produto informado não existe para esta empresa.');
       loss.productId = dto.productId;
     }
@@ -90,6 +103,19 @@ export class LossesService {
     if (dto.quantity !== undefined) loss.quantity = dto.quantity;
     if (dto.description !== undefined) loss.description = dto.description || null;
     if (dto.occurredAt !== undefined) loss.occurredAt = new Date(dto.occurredAt);
+
+    // O valor congelado só muda se mudar O QUE foi perdido ou QUANDO (spec 4.2). Compara valores, não
+    // presença no DTO: o formulário do painel reenvia todos os campos, inclusive os inalterados.
+    const valuationInputsChanged =
+      loss.productId !== previousProductId || new Date(loss.occurredAt).getTime() !== previousOccurredAt;
+    if (valuationInputsChanged) {
+      product ??= await manager.findOne(Product, { where: { id: loss.productId } });
+      if (!product) throw new NotFoundException('Produto informado não existe para esta empresa.');
+      const valuation = await resolveLossValuation(manager, product, loss.occurredAt);
+      loss.unitPriceAtLoss = valuation.unitPrice;
+      loss.unitCostAtLoss = valuation.unitCost;
+      loss.valuationSource = valuation.source;
+    }
 
     return manager.save(loss);
   }
