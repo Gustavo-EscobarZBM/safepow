@@ -29,6 +29,10 @@ export default function ProductsPage() {
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Cadastro de um código que pertence a um produto ARQUIVADO (409 PRODUCT_ARCHIVED_EXISTS): em vez de
+  // um beco sem saída, oferece reativar aquele produto e gravar nele os dados do formulário (F2).
+  const [archivedConflictId, setArchivedConflictId] = useState<string | null>(null);
+  const [restoringConflict, setRestoringConflict] = useState(false);
 
   const [barcode, setBarcode] = useState('');
   const [name, setName] = useState('');
@@ -55,6 +59,7 @@ export default function ProductsPage() {
     e.preventDefault();
     setSubmitting(true);
     setFormError(null);
+    setArchivedConflictId(null);
     try {
       await api.post('products', {
         barcode,
@@ -69,10 +74,48 @@ export default function ProductsPage() {
       productSearch.reload();
     } catch (e) {
       setFormError(e instanceof ApiError ? e.message : 'Erro ao cadastrar produto.');
+      if (e instanceof ApiError && e.errorCode === 'PRODUCT_ARCHIVED_EXISTS') {
+        const productId = (e.data as { productId?: unknown } | null)?.productId;
+        if (typeof productId === 'string') setArchivedConflictId(productId);
+      }
     } finally {
       setSubmitting(false);
     }
   }
+
+  async function handleRestoreAndUpdate() {
+    if (!archivedConflictId) return;
+    setRestoringConflict(true);
+    let restored = false;
+    try {
+      await api.patch(`products/${archivedConflictId}/restore`);
+      restored = true;
+      await api.patch(`products/${archivedConflictId}`, {
+        barcode,
+        name,
+        unitPrice: unitPrice ? Number(unitPrice) : undefined,
+        costPrice: costPrice ? Number(costPrice) : undefined,
+      });
+      setArchivedConflictId(null);
+      setFormError(null);
+      setBarcode('');
+      setName('');
+      setUnitPrice('');
+      setCostPrice('');
+    } catch (e) {
+      const detail = e instanceof ApiError ? e.message : 'Erro inesperado.';
+      setFormError(
+        restored
+          ? `O produto foi reativado, mas os dados não foram atualizados: ${detail}`
+          : `Não foi possível reativar o produto: ${detail}`,
+      );
+      if (restored) setArchivedConflictId(null);
+    } finally {
+      setRestoringConflict(false);
+      if (restored) productSearch.reload();
+    }
+  }
+
 
   async function loadPriceHistory(productId: string) {
     priceHistoryProductRef.current = productId;
@@ -260,7 +303,16 @@ export default function ProductsPage() {
               />
             </div>
 
-            {formError && <p className="text-sm text-destructive sm:col-span-4">{formError}</p>}
+            {formError && (
+              <div className="space-y-2 sm:col-span-4">
+                <p className="text-sm text-destructive">{formError}</p>
+                {archivedConflictId && (
+                  <Button type="button" variant="outline" onClick={handleRestoreAndUpdate} disabled={restoringConflict}>
+                    {restoringConflict ? 'Reativando...' : 'Reativar e atualizar os dados'}
+                  </Button>
+                )}
+              </div>
+            )}
 
             <div className="sm:col-span-4">
               <Button type="submit" disabled={submitting}>

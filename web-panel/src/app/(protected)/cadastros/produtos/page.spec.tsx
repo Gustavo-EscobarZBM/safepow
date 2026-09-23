@@ -179,3 +179,84 @@ describe('ProductsPage — busca no servidor, abas e ciclo de vida (etapa 1.3)',
     await waitFor(() => expect(searchCalls().length).toBeGreaterThan(before));
   });
 });
+
+describe('ProductsPage — cadastro de código de produto arquivado (etapa 1.3)', () => {
+  const archivedConflict = new ApiError(
+    409,
+    'Existe um produto arquivado com este código de barras. Reative-o para voltar a usá-lo.',
+    {
+      statusCode: 409,
+      errorCode: 'PRODUCT_ARCHIVED_EXISTS',
+      message: 'Existe um produto arquivado com este código de barras. Reative-o para voltar a usá-lo.',
+      productId: 'p-z',
+    },
+  );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (api.get as Mock).mockImplementation(async (path: string) => {
+      if (path.startsWith('products/search')) return searchResult([products[0]]);
+      throw new Error(`unexpected path: ${path}`);
+    });
+  });
+
+  async function fillAndSubmit() {
+    render(<ProductsPage />);
+    await screen.findByText('Arroz 5kg');
+    const [barcodeInput, nameInput, priceInput] = screen.getAllByRole('textbox').slice(0, 2).concat(
+      screen.getAllByRole('spinbutton').slice(0, 1),
+    );
+    await userEvent.type(barcodeInput, '999');
+    await userEvent.type(nameInput, 'Macarrão');
+    await userEvent.type(priceInput, '7.5');
+    await userEvent.click(screen.getByRole('button', { name: 'Cadastrar produto' }));
+  }
+
+  it('conflito com produto ARQUIVADO: mostra o aviso e "Reativar e atualizar os dados" reativa e grava o formulário', async () => {
+    (api.post as Mock).mockRejectedValue(archivedConflict);
+    (api.patch as Mock).mockResolvedValue({});
+    await fillAndSubmit();
+
+    expect(await screen.findByText(/existe um produto arquivado com este código/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Reativar e atualizar os dados' }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(2));
+    expect((api.patch as Mock).mock.calls[0]).toEqual(['products/p-z/restore']);
+    expect((api.patch as Mock).mock.calls[1]).toEqual([
+      'products/p-z',
+      { barcode: '999', name: 'Macarrão', unitPrice: 7.5, costPrice: undefined },
+    ]);
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Reativar e atualizar os dados' })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('conflito com produto ATIVO: só a mensagem, sem oferecer reativar', async () => {
+    (api.post as Mock).mockRejectedValue(
+      new ApiError(409, 'Já existe um produto com este código de barras.', {
+        statusCode: 409,
+        errorCode: 'PRODUCT_BARCODE_EXISTS',
+        message: 'Já existe um produto com este código de barras.',
+      }),
+    );
+    await fillAndSubmit();
+
+    expect(await screen.findByText('Já existe um produto com este código de barras.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reativar e atualizar os dados' })).not.toBeInTheDocument();
+  });
+
+  it('falha no PATCH depois do restore: mostra o erro, mantém o formulário e recarrega a lista', async () => {
+    (api.post as Mock).mockRejectedValue(archivedConflict);
+    (api.patch as Mock)
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new ApiError(400, 'name must be longer than or equal to 2 characters'));
+    await fillAndSubmit();
+    const searchesBefore = (api.get as Mock).mock.calls.length;
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Reativar e atualizar os dados' }));
+
+    expect(await screen.findByText(/produto foi reativado, mas os dados não foram atualizados/i)).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Macarrão')).toBeInTheDocument();
+    await waitFor(() => expect((api.get as Mock).mock.calls.length).toBeGreaterThan(searchesBefore));
+  });
+});
