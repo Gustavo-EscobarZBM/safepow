@@ -21,7 +21,7 @@ describe('ApiError — errorCode e data do corpo de erro', () => {
   it('request (JSON): carrega status, message, errorCode e o corpo em data', async () => {
     mockFetch(409, conflict);
 
-    const error = await api.post('products', { barcode: '1' }).catch((e: ApiError) => e);
+    const error = (await api.post('products', { barcode: '1' }).catch((e) => e)) as ApiError;
 
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ status: 409, message: conflict.message, errorCode: 'PRODUCT_ARCHIVED_EXISTS' });
@@ -31,7 +31,7 @@ describe('ApiError — errorCode e data do corpo de erro', () => {
   it('requestForm (multipart): carrega errorCode e data', async () => {
     mockFetch(409, conflict);
 
-    const error = await api.postForm('products/import', new FormData()).catch((e: ApiError) => e);
+    const error = (await api.postForm('products/import', new FormData()).catch((e) => e)) as ApiError;
 
     expect(error).toMatchObject({ status: 409, errorCode: 'PRODUCT_ARCHIVED_EXISTS' });
     expect(error.data).toEqual(conflict);
@@ -40,7 +40,7 @@ describe('ApiError — errorCode e data do corpo de erro', () => {
   it('corpo sem errorCode (erro antigo ou 500): errorCode fica undefined', async () => {
     mockFetch(500, { statusCode: 500, message: 'Falhou' });
 
-    const error = await api.get('products').catch((e: ApiError) => e);
+    const error = (await api.get('products').catch((e) => e)) as ApiError;
 
     expect(error).toMatchObject({ status: 500, message: 'Falhou' });
     expect(error.errorCode).toBeUndefined();
