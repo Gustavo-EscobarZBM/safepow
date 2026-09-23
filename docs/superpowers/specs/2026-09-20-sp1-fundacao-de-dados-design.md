@@ -395,6 +395,14 @@ Integração: `search` com escape de curinga (`%` não vira "tudo"), paginação
 **Medição (não vira teste permanente):** popular 100 mil produtos de uma empresa (`generate_series`) e
 medir `search`; se passar de ~300 ms, `pg_trgm` entra como decisão D6 antes de fechar a etapa.
 
+**Divisão da etapa (2026-09-23):** 1.3.1 = backend (contratos 5.1, testes de backend de 5.3); 1.3.2 =
+web (5.2, testes web de 5.3). **Resultado da 1.3.1 (2026-09-23):** `errorCode` no 409 do cadastro (inclusive
+no cadastro concorrente que viola o índice único), `PATCH /products/:id/restore` (idempotente),
+`GET /products/search` (nome por conteúdo; código de barras e SKU por prefixo; `%`/`_`/`\` literais;
+`sort=updatedAt` = mais recente primeiro; desempate por `id`), `findByBarcode` só ativos, importação
+reativa arquivado. Contratos HTTP testados numa app Nest real (`products.http.int-spec.ts`). Medição com
+100 mil produtos: sem filtro 96 ms (página 1) e ~200 ms (página 2500); nome por conteúdo 163–240 ms; código por prefixo ~180 ms; sem resultado 78–131 ms; `status=all&sort=updatedAt` ~90 ms (Postgres 16 local, tempos com a transação de tenant) ⇒ todos abaixo de ~300 ms — **sem `pg_trgm`** (R7 mantido; D6 continua em aberto para catálogos maiores).
+
 **Pronto quando:** arquivar → recadastrar o mesmo código oferece reativar; o painel lista 100 mil
 produtos com busca e paginação no servidor; `findByBarcode` não devolve arquivado.
 
