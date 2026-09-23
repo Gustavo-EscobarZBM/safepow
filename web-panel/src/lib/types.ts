@@ -5,6 +5,8 @@ export interface SessionUser {
   name: string;
   role: UserRole;
   companyId: string | null;
+  /** Funcionário designado como conferente de descarte pelo gerente (vem do login do backend). */
+  isLossVerifier?: boolean;
 }
 
 export interface Product {

@@ -22,13 +22,17 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  setSessionCookies(data.accessToken, data.user);
+  // isLossVerifier vem do login do backend fora do objeto `user`; sem levá-lo
+  // para a sessão, o menu/middleware não têm como liberar a tela de
+  // conferências para o funcionário designado como conferente.
+  const sessionUser = { ...data.user, isLossVerifier: data.isLossVerifier === true };
+  setSessionCookies(data.accessToken, sessionUser);
 
   // O token nunca volta para o JavaScript do navegador — só os dados do
   // usuário e o status da empresa (para a tela de login decidir se mostra o
   // aviso de "Vencido" antes de liberar o acesso ao painel).
   return NextResponse.json({
-    user: data.user,
+    user: sessionUser,
     companyStatus: data.companyStatus,
     companyDueDate: data.companyDueDate,
   });

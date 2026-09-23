@@ -48,6 +48,9 @@ const MANAGER_LINKS: NavItem[] = [
 // Funcionário só registra perdas — sem acesso a dashboard, cadastros ou usuários.
 const EMPLOYEE_LINKS: NavItem[] = [{ href: '/losses', label: 'Perdas', icon: AlertTriangle }];
 
+// Funcionário designado como conferente pelo gerente também confirma perdas pendentes.
+const VERIFIER_LINK: NavItem = { href: '/conferencias', label: 'Conferências', icon: ShieldCheck };
+
 const MASTER_LINKS: NavItem[] = [
   { href: '/master/companies', label: 'Empresas (Painel Master)', icon: Building2 },
 ];
@@ -55,8 +58,9 @@ const MASTER_LINKS: NavItem[] = [
 export function Nav({ user }: { user: SessionUser }) {
   const pathname = usePathname();
   const router = useRouter();
+  const employeeLinks = user.isLossVerifier ? [...EMPLOYEE_LINKS, VERIFIER_LINK] : EMPLOYEE_LINKS;
   const links =
-    user.role === 'master_admin' ? MASTER_LINKS : user.role === 'employee' ? EMPLOYEE_LINKS : MANAGER_LINKS;
+    user.role === 'master_admin' ? MASTER_LINKS : user.role === 'employee' ? employeeLinks : MANAGER_LINKS;
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -68,7 +72,7 @@ export function Nav({ user }: { user: SessionUser }) {
     <nav className="sticky top-0 flex h-screen w-64 shrink-0 flex-col justify-between overflow-y-auto bg-sidebar text-sidebar-foreground print:hidden">
       <div>
         <div className="px-6 py-7">
-          <Logo variant="dark" />
+          <Logo className="w-full text-sidebar-foreground" />
         </div>
         <div className="flex flex-col gap-1 px-4">
           {links.map((link) => {
