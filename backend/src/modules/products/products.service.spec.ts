@@ -129,3 +129,43 @@ describe('ProductsService.restore e findByBarcode (etapa 1.3)', () => {
     );
   });
 });
+
+describe('ProductsService.update — conflito de código de barras (etapa 1.3)', () => {
+  it('trocar para o código de um produto ARQUIVADO ⇒ 409 PRODUCT_ARCHIVED_EXISTS com o productId', async () => {
+    const manager = {
+      findOne: jest
+        .fn()
+        .mockResolvedValueOnce({ id: 'prod-1', barcode: '111', isActive: true })
+        .mockResolvedValueOnce({ id: 'prod-9', barcode: '999', isActive: false }),
+      save: jest.fn(),
+    };
+
+    const error = await runWithTenantContext(manager, () =>
+      new ProductsService().update('prod-1', { barcode: '999' }),
+    ).catch((e) => e);
+
+    expect(error).toBeInstanceOf(ConflictException);
+    expect(error.getResponse()).toMatchObject({ errorCode: 'PRODUCT_ARCHIVED_EXISTS', productId: 'prod-9' });
+    expect(manager.save).not.toHaveBeenCalled();
+  });
+
+  it('edição concorrente que viola o índice único no save ⇒ 409 PRODUCT_BARCODE_EXISTS, não 500', async () => {
+    const uniqueViolation = Object.assign(new Error('duplicate key'), {
+      driverError: { code: '23505', constraint: 'uq_products_company_barcode' },
+    });
+    const manager = {
+      findOne: jest
+        .fn()
+        .mockResolvedValueOnce({ id: 'prod-1', barcode: '111', isActive: true })
+        .mockResolvedValueOnce(null),
+      save: jest.fn().mockRejectedValue(uniqueViolation),
+    };
+
+    const error = await runWithTenantContext(manager, () =>
+      new ProductsService().update('prod-1', { barcode: '222' }),
+    ).catch((e) => e);
+
+    expect(error).toBeInstanceOf(ConflictException);
+    expect(error.getResponse()).toMatchObject({ errorCode: 'PRODUCT_BARCODE_EXISTS' });
+  });
+});

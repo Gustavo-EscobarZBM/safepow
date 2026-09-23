@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Brackets } from 'typeorm';
 import { getTenantContext, getTenantManager } from '../../common/tenant/tenant-storage';
 import { User } from '../users/user.entity';
@@ -140,7 +140,7 @@ export class ProductsService {
         where: { companyId: companyId!, barcode: dto.barcode },
       });
       if (existing) {
-        throw new ConflictException('Já existe um produto com este código de barras.');
+        throw barcodeConflict(existing);
       }
       product.barcode = dto.barcode;
     }
@@ -149,7 +149,12 @@ export class ProductsService {
     if (dto.unitPrice !== undefined) product.unitPrice = dto.unitPrice;
     if (dto.costPrice !== undefined) product.costPrice = dto.costPrice;
 
-    return manager.save(product);
+    try {
+      return await manager.save(product);
+    } catch (error) {
+      if (isBarcodeUniqueViolation(error)) throw barcodeConflict(null);
+      throw error;
+    }
   }
 
   /**
