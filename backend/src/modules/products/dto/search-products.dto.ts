@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
-import { MAX_PAGE_SIZE } from '../products-search';
+import { MAX_PAGE, MAX_PAGE_SIZE } from '../products-search';
 
 export const PRODUCT_STATUS_FILTERS = ['active', 'archived', 'all'] as const;
 export type ProductStatusFilter = (typeof PRODUCT_STATUS_FILTERS)[number];
@@ -23,6 +23,7 @@ export class SearchProductsDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(MAX_PAGE)
   page?: number;
 
   @IsOptional()

@@ -35,6 +35,7 @@ describe('SearchProductsDto', () => {
     [{ pageSize: '0' }, 'pageSize'],
     [{ page: '0' }, 'page'],
     [{ page: 'abc' }, 'page'],
+    [{ page: '100001' }, 'page'],
     [{ status: 'deleted' }, 'status'],
     [{ sort: 'price' }, 'sort'],
     [{ q: 'x'.repeat(101) }, 'q'],
