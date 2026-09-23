@@ -94,3 +94,38 @@ describe('ProductsService.create — conflito de código de barras (etapa 1.3)',
     expect(error.getResponse()).toMatchObject({ errorCode: 'PRODUCT_BARCODE_EXISTS' });
   });
 });
+
+describe('ProductsService.restore e findByBarcode (etapa 1.3)', () => {
+  it('restore reativa um produto arquivado e devolve o produto', async () => {
+    const product = { id: 'prod-1', isActive: false };
+    const manager = {
+      findOne: jest.fn().mockResolvedValue(product),
+      save: jest.fn().mockImplementation((data) => Promise.resolve(data)),
+    };
+
+    const result = await runWithTenantContext(manager, () => new ProductsService().restore('prod-1'));
+
+    expect(result).toMatchObject({ id: 'prod-1', isActive: true });
+    expect(manager.save).toHaveBeenCalledTimes(1);
+  });
+
+  it('restore de produto já ativo é idempotente: devolve sem regravar', async () => {
+    const manager = {
+      findOne: jest.fn().mockResolvedValue({ id: 'prod-1', isActive: true }),
+      save: jest.fn(),
+    };
+
+    const result = await runWithTenantContext(manager, () => new ProductsService().restore('prod-1'));
+
+    expect(result).toMatchObject({ isActive: true });
+    expect(manager.save).not.toHaveBeenCalled();
+  });
+
+  it('restore de produto inexistente ⇒ NotFoundException', async () => {
+    const manager = { findOne: jest.fn().mockResolvedValue(null), save: jest.fn() };
+
+    await expect(runWithTenantContext(manager, () => new ProductsService().restore('x'))).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+});

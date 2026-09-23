@@ -73,7 +73,8 @@ export class ProductsService {
 
   async findByBarcode(barcode: string): Promise<Product> {
     const manager = getTenantManager();
-    const product = await manager.findOne(Product, { where: { barcode } });
+    // Só ativos (F11): o app não pode registrar perda num produto arquivado.
+    const product = await manager.findOne(Product, { where: { barcode, isActive: true } });
     if (!product) {
       throw new NotFoundException('Produto não encontrado para este código de barras.');
     }
@@ -148,6 +149,18 @@ export class ProductsService {
       costPrice: Number(row.costPrice),
       changedByName: row.changedByName ?? null,
     }));
+  }
+
+  /** Reativa um produto arquivado (F2). Idempotente: reativar um produto ativo só o devolve. */
+  async restore(id: string): Promise<Product> {
+    const manager = getTenantManager();
+    const product = await manager.findOne(Product, { where: { id } });
+    if (!product) {
+      throw new NotFoundException('Produto não encontrado.');
+    }
+    if (product.isActive) return product;
+    product.isActive = true;
+    return manager.save(product);
   }
 
   // Exclusão lógica (isActive = false): produtos já referenciados em perdas

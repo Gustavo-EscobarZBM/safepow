@@ -61,6 +61,13 @@ export class ProductsController {
     return this.productsService.update(id, dto);
   }
 
+  // Reativa um produto arquivado (o "Excluir" do painel arquiva — ver remove()).
+  @Patch(':id/restore')
+  @Roles(UserRole.MANAGER)
+  restore(@Param('id', ParseUUIDPipe) id: string) {
+    return this.productsService.restore(id);
+  }
+
   // Exclusão lógica — ver nota em ProductsService.remove().
   @Delete(':id')
   @Roles(UserRole.MANAGER)

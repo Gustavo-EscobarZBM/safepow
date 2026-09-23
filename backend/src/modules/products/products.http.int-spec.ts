@@ -108,4 +108,22 @@ describe('ProductsController — contratos HTTP (etapa 1.3)', () => {
       productId: archivedId,
     });
   });
+
+  it('PATCH /products/:id/restore reativa e devolve o produto (200)', async () => {
+    const productId = await seedProduct({ companyId, barcode: '790' });
+    await adminQuery(`UPDATE products SET "isActive" = false WHERE id = $1`, [productId]);
+
+    const { status, body } = await request(baseUrl, 'PATCH', `/api/products/${productId}/restore`, managerToken);
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ id: productId, isActive: true });
+  });
+
+  it('PATCH /products/:id/restore é só para gerente (403 para funcionário)', async () => {
+    const productId = await seedProduct({ companyId, barcode: '791' });
+
+    const { status } = await request(baseUrl, 'PATCH', `/api/products/${productId}/restore`, employeeToken);
+
+    expect(status).toBe(403);
+  });
 });
