@@ -1,4 +1,5 @@
 import { Loss } from './loss.entity';
+import { lossValue } from './losses-valuation';
 
 export interface SuspiciousPatternEntry {
   employeeId: string;
@@ -52,10 +53,6 @@ const WEIGHTS = {
   poorDescription: 15,
 };
 
-function lossValue(loss: Loss): number {
-  return Number(loss.quantity) * Number(loss.product?.unitPrice ?? 0);
-}
-
 function pct(value: number, total: number): number {
   return total === 0 ? 0 : (value / total) * 100;
 }
@@ -93,9 +90,7 @@ function countByEmployee(losses: Loss[]): Map<string, number> {
 
 /** Preço a partir do qual um produto entra no top 20% mais caro perdido no período. */
 function computeHighValueThreshold(losses: Loss[]): number {
-  const prices = [...new Set(losses.filter((l) => l.product).map((l) => Number(l.product!.unitPrice)))].sort(
-    (a, b) => a - b,
-  );
+  const prices = [...new Set(losses.map((l) => Number(l.unitPriceAtLoss)))].sort((a, b) => a - b);
   if (prices.length === 0) return Infinity;
   const index = Math.min(
     prices.length - 1,
@@ -137,7 +132,7 @@ export function computeSuspiciousPatterns(input: SuspiciousPatternsInput): Suspi
       const entry = byProduct.get(loss.product.id) ?? {
         name: loss.product.name,
         amount: 0,
-        price: Number(loss.product.unitPrice),
+        price: Number(loss.unitPriceAtLoss),
       };
       entry.amount += lossValue(loss);
       byProduct.set(loss.product.id, entry);

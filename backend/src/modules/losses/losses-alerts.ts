@@ -1,4 +1,5 @@
 import { Loss } from './loss.entity';
+import { lossValue } from './losses-valuation';
 
 export type AlertSeverity = 'critical' | 'warning' | 'success' | 'info';
 
@@ -68,10 +69,6 @@ const WEEKDAY_NAMES = [
   'sexta-feira',
   'sábado',
 ];
-
-function lossValue(loss: Loss): number {
-  return Number(loss.quantity) * Number(loss.product?.unitPrice ?? 0);
-}
 
 function pct(value: number, total: number): number {
   return total === 0 ? 0 : (value / total) * 100;
@@ -357,7 +354,7 @@ function checkInactiveProductLoss(current: Loss[]): LossAlert | null {
 function checkZeroPriceProduct(current: Loss[]): LossAlert | null {
   const zeroPriceProducts = new Map<string, string>();
   for (const loss of current) {
-    if (loss.product && Number(loss.product.unitPrice) === 0) {
+    if (loss.product && Number(loss.unitPriceAtLoss) === 0) {
       zeroPriceProducts.set(loss.product.id, loss.product.name);
     }
   }
@@ -368,7 +365,7 @@ function checkZeroPriceProduct(current: Loss[]): LossAlert | null {
     id: 'zero_price_product',
     severity: 'warning',
     title: 'Produtos sem preço cadastrado',
-    description: `${zeroPriceProducts.size} produto(s) com preço zerado no cadastro (${names}) estão subestimando o prejuízo real — corrija o preço unitário.`,
+    description: `${zeroPriceProducts.size} produto(s) com perdas registradas a preço zero (${names}) estão subestimando o prejuízo real — corrija o preço unitário no cadastro.`,
   };
 }
 

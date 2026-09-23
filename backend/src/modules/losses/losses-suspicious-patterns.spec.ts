@@ -38,7 +38,12 @@ function makeLoss(overrides: Partial<{
     company: undefined,
     clientGeneratedId: `cgid-${n}`,
     productId,
-    product: { id: productId, name: productName, unitPrice } as Loss['product'],
+    // O preço do CADASTRO hoje é diferente de propósito (0): o cálculo tem de usar o valor congelado da
+    // perda (unitPriceAtLoss), nunca o preço atual do produto (F1).
+    product: { id: productId, name: productName, unitPrice: 0 } as Loss['product'],
+    unitPriceAtLoss: unitPrice,
+    unitCostAtLoss: 0,
+    valuationSource: 'snapshot',
     reportedByUserId,
     reportedBy: { id: reportedByUserId, name: reportedByName } as Loss['reportedBy'],
     quantity,
