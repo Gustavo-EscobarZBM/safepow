@@ -19,6 +19,20 @@ export interface Product {
   isActive: boolean;
 }
 
+/** Origem de uma mudança de preço (backend: product_price_history.source). */
+export type PriceChangeSource = 'manual' | 'import' | 'bulk' | 'retro_fix' | 'erp' | 'approval' | 'backfill';
+
+/** Linha de GET /products/:id/price-history (mais recente primeiro, no máximo 100). */
+export interface PriceHistoryEntry {
+  id: string;
+  unitPrice: number;
+  costPrice: number;
+  validFrom: string;
+  source: PriceChangeSource;
+  changedByUserId: string | null;
+  changedByName: string | null;
+}
+
 export interface UpdateProductInput {
   barcode?: string;
   sku?: string;
