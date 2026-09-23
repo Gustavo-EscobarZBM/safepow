@@ -3,7 +3,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Pencil, Search, Trash2 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api-client';
-import type { ImportJob, Product } from '@/lib/types';
+import type { ImportJob, PriceHistoryEntry, Product } from '@/lib/types';
+import { PriceHistoryTimeline } from '@/components/price-history-timeline';
 import { Pagination, paginate } from '@/components/pagination';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -39,6 +40,14 @@ export default function ProductsPage() {
   const [editForm, setEditForm] = useState({ barcode: '', name: '', unitPrice: '', costPrice: '' });
   const [editError, setEditError] = useState<string | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
+  const [priceHistory, setPriceHistory] = useState<{
+    entries: PriceHistoryEntry[];
+    loading: boolean;
+    error: string | null;
+  }>({ entries: [], loading: false, error: null });
+  // Produto cujo histórico está sendo exibido: uma resposta que chegue depois de o gerente trocar de
+  // produto é descartada, senão o diálogo do produto B mostraria os preços do A.
+  const priceHistoryProductRef = useRef<string | null>(null);
 
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -94,6 +103,23 @@ export default function ProductsPage() {
     }
   }
 
+  async function loadPriceHistory(productId: string) {
+    priceHistoryProductRef.current = productId;
+    setPriceHistory({ entries: [], loading: true, error: null });
+    try {
+      const entries = await api.get<PriceHistoryEntry[]>(`products/${productId}/price-history`);
+      if (priceHistoryProductRef.current !== productId) return;
+      setPriceHistory({ entries, loading: false, error: null });
+    } catch (e) {
+      if (priceHistoryProductRef.current !== productId) return;
+      setPriceHistory({
+        entries: [],
+        loading: false,
+        error: e instanceof ApiError ? e.message : 'Erro ao carregar o histórico de preços.',
+      });
+    }
+  }
+
   function openEdit(product: Product) {
     setProductToEdit(product);
     setEditForm({
@@ -103,6 +129,7 @@ export default function ProductsPage() {
       costPrice: String(product.costPrice ?? ''),
     });
     setEditError(null);
+    void loadPriceHistory(product.id);
   }
 
   async function handleEditSubmit(e: FormEvent) {
@@ -465,6 +492,7 @@ export default function ProductsPage() {
                 />
               </div>
             </div>
+            <PriceHistoryTimeline {...priceHistory} />
             {editError && <p className="text-sm text-destructive">{editError}</p>}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setProductToEdit(null)}>
