@@ -299,6 +299,16 @@ falha alto — comportamento desejado.
 - **Endpoint novo (útil já nesta etapa):** `GET /products/:id/price-history` (gerente) → últimas 100
   linhas, mais recente primeiro.
 
+**Resultados (sub-etapa 1.2.3, executada em 2026-09-23):** `resolveLossValuation` + constantes SQL em
+`losses-valuation.ts`; `LossesService.create/update` gravam o valor congelado (update só recalcula se
+produto ou data mudarem de VALOR); relatórios, export, alertas e padrões suspeitos usam
+`loss.unitPriceAtLoss`/`unitCostAtLoss`; `app.current_user_id` no middleware e `app.change_source =
+'import'` na importação; `GET /products/:id/price-history`. Migration `1700000013000` endureceu os
+triggers (usuário inexistente → NULL, fallback parcial por coluna, `search_path` fixo). Regressão F1
+coberta por `losses-f1-regression.int-spec.ts`. **Deploy:** aplicar 10000–13000 no banco real em janela
+de manutenção — os `ALTER TABLE` da 11000/12000 tomam `ACCESS EXCLUSIVE` em `products`/`losses` até o
+commit, e o backfill da 12000 reescreve todas as perdas.
+
 ### 4.3 Web (mínimo, sub-etapa 1.2.4)
 - Diálogo de edição do produto ganha a linha do tempo de preços (lista simples: data, preço, custo,
   quem alterou, origem). Nenhuma outra tela muda.

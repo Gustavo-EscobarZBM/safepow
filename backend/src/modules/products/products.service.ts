@@ -1,8 +1,22 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { getTenantContext, getTenantManager } from '../../common/tenant/tenant-storage';
+import { User } from '../users/user.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { Product } from './product.entity';
+import { PriceChangeSource, ProductPriceHistory } from './product-price-history.entity';
+
+export interface PriceHistoryEntry {
+  id: string;
+  unitPrice: number;
+  costPrice: number;
+  validFrom: Date;
+  source: PriceChangeSource;
+  changedByUserId: string | null;
+  changedByName: string | null;
+}
+
+const PRICE_HISTORY_LIMIT = 100;
 
 /**
  * Nenhum método aqui filtra manualmente por companyId — a Row Level Security
@@ -82,6 +96,50 @@ export class ProductsService {
     if (dto.costPrice !== undefined) product.costPrice = dto.costPrice;
 
     return manager.save(product);
+  }
+
+  /**
+   * Linha do tempo de preços do produto (sub-etapa 1.2.4 exibe no painel): as últimas 100 mudanças,
+   * da mais recente para a mais antiga. Só colunas explícitas do usuário (nome) — nunca a entidade
+   * inteira, que carrega dados de autenticação.
+   */
+  async findPriceHistory(id: string): Promise<PriceHistoryEntry[]> {
+    const manager = getTenantManager();
+    const product = await manager.findOne(Product, { where: { id } });
+    if (!product) {
+      throw new NotFoundException('Produto não encontrado.');
+    }
+
+    const rows = await manager
+      .createQueryBuilder(ProductPriceHistory, 'history')
+      .leftJoin(User, 'changedBy', 'changedBy.id = history.changedByUserId')
+      .select('history.id', 'id')
+      .addSelect('history.unitPrice', 'unitPrice')
+      .addSelect('history.costPrice', 'costPrice')
+      .addSelect('history.validFrom', 'validFrom')
+      .addSelect('history.source', 'source')
+      .addSelect('history.changedByUserId', 'changedByUserId')
+      .addSelect('changedBy.name', 'changedByName')
+      .where('history.productId = :id', { id })
+      .orderBy('history.validFrom', 'DESC')
+      .addOrderBy('history.seq', 'DESC')
+      .limit(PRICE_HISTORY_LIMIT)
+      .getRawMany<{
+        id: string;
+        unitPrice: string;
+        costPrice: string;
+        validFrom: Date;
+        source: PriceChangeSource;
+        changedByUserId: string | null;
+        changedByName: string | null;
+      }>();
+
+    return rows.map((row) => ({
+      ...row,
+      unitPrice: Number(row.unitPrice),
+      costPrice: Number(row.costPrice),
+      changedByName: row.changedByName ?? null,
+    }));
   }
 
   // Exclusão lógica (isActive = false): produtos já referenciados em perdas

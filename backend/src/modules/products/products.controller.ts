@@ -48,6 +48,13 @@ export class ProductsController {
     return this.productsService.findByBarcode(barcode);
   }
 
+  // Linha do tempo de preços do produto (valor congelado das perdas — SP1, sub-etapa 1.2.3).
+  @Get(':id/price-history')
+  @Roles(UserRole.MANAGER)
+  findPriceHistory(@Param('id', ParseUUIDPipe) id: string) {
+    return this.productsService.findPriceHistory(id);
+  }
+
   @Patch(':id')
   @Roles(UserRole.MANAGER)
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateProductDto) {
