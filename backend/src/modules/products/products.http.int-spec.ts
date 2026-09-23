@@ -126,4 +126,27 @@ describe('ProductsController — contratos HTTP (etapa 1.3)', () => {
 
     expect(status).toBe(403);
   });
+
+  it('GET /products/search responde a busca (a rota estática não cai em handler paramétrico)', async () => {
+    await seedProduct({ companyId, barcode: '800', name: 'Arroz' });
+
+    const { status, body } = await request(baseUrl, 'GET', '/api/products/search?q=arr&pageSize=5', managerToken);
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ total: 1, page: 1, pageSize: 5 });
+    expect(body.items[0]).toMatchObject({ name: 'Arroz', barcode: '800' });
+  });
+
+  it.each(['pageSize=500', 'page=0', 'page=abc', 'status=deleted', 'foo=bar'])(
+    'GET /products/search?%s ⇒ 400 (validação da query)',
+    async (query) => {
+      const { status } = await request(baseUrl, 'GET', `/api/products/search?${query}`, managerToken);
+      expect(status).toBe(400);
+    },
+  );
+
+  it('GET /products/search é só para gerente (403 para funcionário)', async () => {
+    const { status } = await request(baseUrl, 'GET', '/api/products/search', employeeToken);
+    expect(status).toBe(403);
+  });
 });

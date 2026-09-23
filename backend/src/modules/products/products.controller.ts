@@ -18,6 +18,7 @@ import { SubscriptionGuard } from '../../common/guards/subscription.guard';
 import { UserRole } from '../users/user.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { SearchProductsDto } from './dto/search-products.dto';
 import { ProductsService } from './products.service';
 
 @Controller('products')
@@ -39,6 +40,13 @@ export class ProductsController {
   @Roles(UserRole.MANAGER, UserRole.EMPLOYEE)
   findAll(@Query('since') since?: string) {
     return this.productsService.findAll(since);
+  }
+
+  // Busca paginada do painel (etapa 1.3). Rota estática declarada antes das paramétricas.
+  @Get('search')
+  @Roles(UserRole.MANAGER)
+  search(@Query() query: SearchProductsDto) {
+    return this.productsService.search(query);
   }
 
   // Usado pelo app ao escanear um código de barras (funcionalidade 1 do documento).
