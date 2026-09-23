@@ -20,6 +20,15 @@ export enum LossSource {
   WEB = 'web',
 }
 
+// Origem do valor congelado (migration 1700000012000, CHECK chk_losses_valuation_source). varchar +
+// CHECK em vez de enum do Postgres (R4 do spec do SP1): os SPs 5 e 6 vão acrescentar valores.
+export type LossValuationSource =
+  | 'snapshot'
+  | 'backfill_current'
+  | 'fallback_current'
+  | 'recalculated'
+  | 'pending_product';
+
 @Entity('losses')
 // clientGeneratedId é o UUID criado no próprio celular (Seção 4.2 do documento):
 // garante que reenvios do app após reconexão não dupliquem o registro (idempotência).
@@ -100,6 +109,18 @@ export class Loss {
   @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'verifiedByUserId' })
   verifiedBy: User | null;
+
+  // Valor congelado (SP1, sub-etapas 1.2.2/1.2.3): preço e custo vigentes em occurredAt, gravados por
+  // LossesService via resolveLossValuation. É a base de TODO cálculo de prejuízo — nunca o preço atual
+  // do produto (F1: mudar o preço reescrevia o valor de perdas antigas).
+  @Column({ type: 'numeric', precision: 12, scale: 2 })
+  unitPriceAtLoss: number;
+
+  @Column({ type: 'numeric', precision: 12, scale: 2 })
+  unitCostAtLoss: number;
+
+  @Column({ type: 'varchar', length: 20, default: 'snapshot' })
+  valuationSource: LossValuationSource;
 
   // Momento em que a perda ocorreu segundo o funcionário (pode ser anterior ao
   // momento de sincronização, já que o registro pode ter sido feito offline).

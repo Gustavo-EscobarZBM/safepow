@@ -4,6 +4,7 @@ import { ImportJob } from '../modules/imports/import-job.entity';
 import { Loss } from '../modules/losses/loss.entity';
 import { LossLocation } from '../modules/loss-locations/loss-location.entity';
 import { LossReason } from '../modules/loss-reasons/loss-reason.entity';
+import { ProductPriceHistory } from '../modules/products/product-price-history.entity';
 import { Product } from '../modules/products/product.entity';
 import { User } from '../modules/users/user.entity';
 
@@ -23,4 +24,5 @@ export const ENTITIES = [
   LossReason,
   LossLocation,
   CompanyMonthlyRevenue,
+  ProductPriceHistory,
 ];
