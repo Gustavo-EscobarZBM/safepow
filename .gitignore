@@ -25,3 +25,7 @@ mobile_app/ios/
 # Geral
 .DS_Store
 Thumbs.db
+
+# Estado local do Claude Code (trava de tarefas agendadas) — muda a cada
+# sessão nesta máquina, não é configuração do projeto.
+.claude/scheduled_tasks.lock
