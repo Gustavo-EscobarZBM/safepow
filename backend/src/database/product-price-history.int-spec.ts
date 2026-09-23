@@ -1,5 +1,6 @@
 import { getTestDbConfig } from '../test-utils/test-db-config';
 import { createTestDatabase, dropTestDatabase, queryAsAdmin, queryAsOwner, runMigrations } from '../test-utils/test-db-lifecycle';
+import { Company } from '../modules/companies/company.entity';
 import {
   adminQuery,
   closeTestConnections,
@@ -83,6 +84,28 @@ describe('product_price_history — trigger em products e RLS', () => {
 
     const rows = await historyRows(productId);
     expect(rows[1]).toMatchObject({ source: 'import', changedByUserId: userId });
+  });
+
+  it('excluir a empresa (como companies.remove) apaga o histórico em cascata, apesar do GRANT só de SELECT/INSERT', async () => {
+    const companyId = await seedCompany('Empresa Excluída');
+    const outra = await seedCompany('Empresa Que Fica');
+    const userId = await adminQuery(
+      `INSERT INTO users (name, email, "passwordHash", role, "companyId") VALUES ($1, $2, 'x', 'manager', $3) RETURNING id`,
+      ['Gerente excluído', 'gerente-excluido@teste.local', companyId],
+    ).then((rows) => rows[0].id as string);
+    const productId = await seedProduct({ companyId, barcode: '4001', unitPrice: 10, costPrice: 6 });
+    await seedProduct({ companyId: outra, barcode: '4002' });
+    // Linha com changedByUserId preenchido: exercita também o FK ON DELETE SET NULL vindo de users.
+    await withTenant({ companyId, userId }, (manager) =>
+      manager.query(`UPDATE products SET "unitPrice" = 11 WHERE id = $1`, [productId]),
+    );
+
+    // Mesmo caminho de CompaniesService.remove: role de runtime, tenant = a própria empresa.
+    await withTenant({ companyId }, (manager) => manager.delete(Company, companyId));
+
+    const restantes = await adminQuery(`SELECT "companyId" FROM product_price_history`);
+    expect(restantes).toHaveLength(1);
+    expect(restantes[0].companyId).toBe(outra);
   });
 
   it('a empresa A não enxerga histórico de preço da empresa B (RLS)', async () => {

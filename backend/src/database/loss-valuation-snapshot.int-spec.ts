@@ -2,6 +2,7 @@ import { getTestDbConfig } from '../test-utils/test-db-config';
 import { createTestDatabase, dropTestDatabase, queryAsAdmin, runMigrations } from '../test-utils/test-db-lifecycle';
 import {
   adminQuery,
+  appDataSource,
   closeTestConnections,
   seedCompany,
   seedProduct,
@@ -86,6 +87,25 @@ describe('losses — valor congelado: trigger de segurança e restrições', () 
       [lossId],
     );
     expect(loss).toMatchObject({ unitPriceAtLoss: '999.99', unitCostAtLoss: '888.88', valuationSource: 'snapshot' });
+  });
+
+  it('perda inserida FORA de contexto de tenant é rejeitada (não grava valor zerado)', async () => {
+    const companyId = await seedCompany('Empresa Sem Tenant');
+    const productId = await seedProduct({ companyId, barcode: '3004', unitPrice: 40, costPrice: 20 });
+    const { userId, locationId, reasonId } = await seedLossPrerequisites(companyId);
+
+    // Role de runtime sem app.current_company_id (ou com '' herdado de uma conexão reaproveitada do
+    // pool — o cenário do F18): a WITH CHECK da política barra o INSERT (e o trigger também não
+    // enxergaria o produto, então nunca sai uma perda com valor zerado).
+    await expect(
+      (await appDataSource()).query(
+        `INSERT INTO losses
+           ("companyId", "clientGeneratedId", "productId", "reportedByUserId", "locationId", "reasonId", "occurredAt")
+         VALUES ($1, gen_random_uuid(), $2, $3, $4, $5, now())`,
+        [companyId, productId, userId, locationId, reasonId],
+      ),
+    ).rejects.toThrow(/new row violates row-level security policy for table "losses"/);
+    expect(await adminQuery(`SELECT id FROM losses`)).toHaveLength(0);
   });
 
   it('perda referenciando produto de OUTRA empresa falha alto (NOT NULL), não grava valor zerado', async () => {

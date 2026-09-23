@@ -14,7 +14,8 @@ export const TENANT_COMPANY_ID_PREDICATE =
 
 /**
  * Roda `fn` com FORCE ROW LEVEL SECURITY temporariamente DESLIGADA nas tabelas listadas, dentro da
- * mesma transação da migration, e sempre religa ao final (mesmo se `fn` lançar).
+ * mesma transação da migration, e religa ao final. Se `fn` lançar, o erro original é propagado sem
+ * ser mascarado (ver o `catch` abaixo); dentro de transação, o ROLLBACK é quem restaura o FORCE.
  *
  * Por quê: as migrations deste projeto rodam como DONO das tabelas, mas SEM superusuário (imita banco
  * gerenciado — ver `test-db-lifecycle.ts`, `createTestDatabase`), e todas as tabelas de tenant têm
@@ -34,11 +35,20 @@ export async function withoutForcedRls(
   for (const table of tables) {
     await queryRunner.query(`ALTER TABLE "${table}" NO FORCE ROW LEVEL SECURITY`);
   }
-  try {
-    await fn();
-  } finally {
+  const restoreForce = async () => {
     for (const table of tables) {
       await queryRunner.query(`ALTER TABLE "${table}" FORCE ROW LEVEL SECURITY`);
     }
+  };
+  try {
+    await fn();
+  } catch (error) {
+    // Dentro de transação (o padrão do TypeORM para migrations), o erro de `fn` já abortou a
+    // transação: o ALTER TABLE abaixo falharia com "current transaction is aborted" e, se lançasse,
+    // esconderia o erro real. O ROLLBACK já desfaz o NO FORCE nesse caso; a tentativa só importa
+    // quando não há transação (migrationsTransactionMode 'none'), e o erro original sempre prevalece.
+    await restoreForce().catch(() => undefined);
+    throw error;
   }
+  await restoreForce();
 }
