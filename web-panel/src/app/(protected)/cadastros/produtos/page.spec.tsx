@@ -1,25 +1,23 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ProductsPage from './page';
 import { api, ApiError } from '@/lib/api-client';
 import type { PriceHistoryEntry } from '@/lib/types';
 
-vi.mock('@/lib/api-client', () => ({
+vi.mock('@/lib/api-client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api-client')>()),
   api: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn(), postForm: vi.fn() },
-  ApiError: class ApiError extends Error {
-    status: number;
-    constructor(status: number, message: string) {
-      super(message);
-      this.status = status;
-    }
-  },
 }));
 
 const products = [
   { id: 'p-a', barcode: '111', sku: null, name: 'Arroz 5kg', unitPrice: '12.00', costPrice: '6.00', isActive: true },
   { id: 'p-b', barcode: '222', sku: null, name: 'Feijão 1kg', unitPrice: '8.00', costPrice: '4.00', isActive: true },
 ];
+
+function searchResult(items: typeof products, total = items.length) {
+  return { items, total, page: 1, pageSize: 20 };
+}
 
 function history(unitPrice: number, id: string): PriceHistoryEntry[] {
   return [
@@ -42,7 +40,7 @@ describe('ProductsPage — linha do tempo de preços no diálogo de edição', (
 
   it('ao abrir a edição, busca e mostra o histórico daquele produto', async () => {
     (api.get as Mock).mockImplementation(async (path: string) => {
-      if (path === 'products') return products;
+      if (path.startsWith('products/search')) return searchResult(products);
       if (path === 'products/p-a/price-history') return history(12, 'h-a');
       throw new Error(`unexpected path: ${path}`);
     });
@@ -58,7 +56,7 @@ describe('ProductsPage — linha do tempo de preços no diálogo de edição', (
 
   it('o diálogo de edição tem altura limitada e rola por dentro (celular: Salvar nunca fica fora da tela)', async () => {
     (api.get as Mock).mockImplementation(async (path: string) => {
-      if (path === 'products') return products;
+      if (path.startsWith('products/search')) return searchResult(products);
       if (path === 'products/p-a/price-history') return history(12, 'h-a');
       throw new Error(`unexpected path: ${path}`);
     });
@@ -71,7 +69,7 @@ describe('ProductsPage — linha do tempo de preços no diálogo de edição', (
 
   it('erro no histórico não bloqueia a edição: mostra a mensagem e o botão de salvar continua ativo', async () => {
     (api.get as Mock).mockImplementation(async (path: string) => {
-      if (path === 'products') return products;
+      if (path.startsWith('products/search')) return searchResult(products);
       throw new ApiError(500, 'Histórico indisponível.');
     });
 
@@ -86,7 +84,7 @@ describe('ProductsPage — linha do tempo de preços no diálogo de edição', (
   it('resposta atrasada de outro produto não aparece no diálogo do produto aberto depois', async () => {
     let resolveA: (value: PriceHistoryEntry[]) => void = () => undefined;
     (api.get as Mock).mockImplementation((path: string) => {
-      if (path === 'products') return Promise.resolve(products);
+      if (path.startsWith('products/search')) return Promise.resolve(searchResult(products));
       if (path === 'products/p-a/price-history') {
         return new Promise<PriceHistoryEntry[]>((resolve) => {
           resolveA = resolve;
@@ -109,5 +107,75 @@ describe('ProductsPage — linha do tempo de preços no diálogo de edição', (
     await new Promise((r) => setTimeout(r, 0));
 
     expect(within(dialog).getByRole('list', { name: /histórico de preços/i })).not.toHaveTextContent(/99,00/);
+  });
+});
+
+describe('ProductsPage — busca no servidor, abas e ciclo de vida (etapa 1.3)', () => {
+  const archived = { ...products[1], isActive: false };
+
+  function searchCalls(): string[] {
+    return (api.get as Mock).mock.calls.map((call) => call[0] as string).filter((p) => p.startsWith('products/search'));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (api.get as Mock).mockImplementation(async (path: string) => {
+      if (path.includes('status=archived')) return searchResult([archived]);
+      if (path.startsWith('products/search')) return searchResult([products[0]], 45);
+      throw new Error(`unexpected path: ${path}`);
+    });
+    (api.delete as Mock).mockResolvedValue(undefined);
+    (api.patch as Mock).mockResolvedValue({});
+  });
+
+  it('carrega pela busca do servidor e pagina com o total do servidor', async () => {
+    render(<ProductsPage />);
+
+    expect(await screen.findByText('Arroz 5kg')).toBeInTheDocument();
+    expect(searchCalls()[0]).toBe('products/search?status=active&page=1&pageSize=20');
+    expect(screen.getByText('Página 1 de 3')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Próxima' }));
+    await waitFor(() => expect(searchCalls()).toContain('products/search?status=active&page=2&pageSize=20'));
+  });
+
+  it('abas: Arquivados troca o status da busca; Todos também', async () => {
+    render(<ProductsPage />);
+    await screen.findByText('Arroz 5kg');
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Arquivados' }));
+    await waitFor(() => expect(searchCalls()).toContain('products/search?status=archived&page=1&pageSize=20'));
+    await userEvent.click(screen.getByRole('tab', { name: 'Todos' }));
+    await waitFor(() => expect(searchCalls()).toContain('products/search?status=all&page=1&pageSize=20'));
+  });
+
+  it('"Excluir" virou "Arquivar": o diálogo explica e arquivar chama DELETE e recarrega', async () => {
+    render(<ProductsPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Arquivar Arroz 5kg' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/deixará de aparecer no app dos funcionários/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/histórico de perdas/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/reativá-lo depois/i)).toBeInTheDocument();
+    const before = searchCalls().length;
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Arquivar' }));
+
+    expect(api.delete).toHaveBeenCalledWith('products/p-a');
+    await waitFor(() => expect(searchCalls().length).toBeGreaterThan(before));
+    expect(screen.queryByRole('button', { name: /excluir/i })).not.toBeInTheDocument();
+  });
+
+  it('arquivados mostram o selo e a ação Reativar (PATCH …/restore), sem a ação Arquivar', async () => {
+    render(<ProductsPage />);
+    await screen.findByText('Arroz 5kg');
+    await userEvent.click(screen.getByRole('tab', { name: 'Arquivados' }));
+
+    expect(await screen.findByText('Arquivado')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Arquivar Feijão 1kg' })).not.toBeInTheDocument();
+    const before = searchCalls().length;
+    await userEvent.click(screen.getByRole('button', { name: 'Reativar Feijão 1kg' }));
+
+    expect(api.patch).toHaveBeenCalledWith('products/p-b/restore');
+    await waitFor(() => expect(searchCalls().length).toBeGreaterThan(before));
   });
 });

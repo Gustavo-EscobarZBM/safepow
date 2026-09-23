@@ -1,11 +1,14 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { Pencil, Search, Trash2 } from 'lucide-react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
+import { Archive, ArchiveRestore, Pencil, Search } from 'lucide-react';
 import { api, ApiError } from '@/lib/api-client';
-import type { ImportJob, PriceHistoryEntry, Product } from '@/lib/types';
+import type { ImportJob, PriceHistoryEntry, Product, ProductStatusFilter } from '@/lib/types';
 import { PriceHistoryTimeline } from '@/components/price-history-timeline';
-import { Pagination, paginate } from '@/components/pagination';
+import { Pagination } from '@/components/pagination';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useProductSearch } from './use-product-search';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,12 +23,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
-const PAGE_SIZE = 20;
-
 export default function ProductsPage() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const productSearch = useProductSearch();
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -33,8 +34,6 @@ export default function ProductsPage() {
   const [name, setName] = useState('');
   const [unitPrice, setUnitPrice] = useState('');
   const [costPrice, setCostPrice] = useState('');
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState('');
 
   const [productToEdit, setProductToEdit] = useState<Product | null>(null);
   const [editForm, setEditForm] = useState({ barcode: '', name: '', unitPrice: '', costPrice: '' });
@@ -49,36 +48,8 @@ export default function ProductsPage() {
   // produto é descartada, senão o diálogo do produto B mostraria os preços do A.
   const priceHistoryProductRef = useRef<string | null>(null);
 
-  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
-  const [deleting, setDeleting] = useState(false);
-
-  async function loadProducts() {
-    setLoading(true);
-    try {
-      const data = await api.get<Product[]>('products');
-      setProducts(data);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Erro ao carregar produtos.');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    loadProducts();
-  }, []);
-
-  const filteredProducts = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    if (!term) return products;
-    return products.filter(
-      (product) =>
-        product.name.toLowerCase().includes(term) ||
-        product.barcode.toLowerCase().includes(term) ||
-        (product.sku || '').toLowerCase().includes(term),
-    );
-  }, [products, search]);
+  const [productToArchive, setProductToArchive] = useState<Product | null>(null);
+  const [archiving, setArchiving] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -95,7 +66,7 @@ export default function ProductsPage() {
       setName('');
       setUnitPrice('');
       setCostPrice('');
-      await loadProducts();
+      productSearch.reload();
     } catch (e) {
       setFormError(e instanceof ApiError ? e.message : 'Erro ao cadastrar produto.');
     } finally {
@@ -145,7 +116,7 @@ export default function ProductsPage() {
         costPrice: editForm.costPrice ? Number(editForm.costPrice) : undefined,
       });
       setProductToEdit(null);
-      await loadProducts();
+      productSearch.reload();
     } catch (e) {
       setEditError(e instanceof ApiError ? e.message : 'Erro ao salvar produto.');
     } finally {
@@ -153,19 +124,34 @@ export default function ProductsPage() {
     }
   }
 
-  async function handleDeleteConfirmed() {
-    if (!productToDelete) return;
-    setDeleting(true);
+  async function handleArchiveConfirmed() {
+    if (!productToArchive) return;
+    setArchiving(true);
+    setActionError(null);
     try {
-      await api.delete(`products/${productToDelete.id}`);
-      setProductToDelete(null);
-      await loadProducts();
+      await api.delete(`products/${productToArchive.id}`);
+      setProductToArchive(null);
+      productSearch.reload();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Erro ao excluir produto.');
+      setActionError(e instanceof ApiError ? e.message : 'Erro ao arquivar produto.');
     } finally {
-      setDeleting(false);
+      setArchiving(false);
     }
   }
+
+  async function handleRestore(product: Product) {
+    setRestoringId(product.id);
+    setActionError(null);
+    try {
+      await api.patch(`products/${product.id}/restore`);
+      productSearch.reload();
+    } catch (e) {
+      setActionError(e instanceof ApiError ? e.message : 'Erro ao reativar produto.');
+    } finally {
+      setRestoringId(null);
+    }
+  }
+
 
   // --- Importação de planilha (Seção 5 do documento) ---
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -191,7 +177,7 @@ export default function ProductsPage() {
         setImportJob(job);
         if (job.status === 'completed' || job.status === 'failed') {
           if (pollRef.current) clearInterval(pollRef.current);
-          if (job.status === 'completed') await loadProducts();
+          if (job.status === 'completed') productSearch.reload();
         }
       } catch {
         if (pollRef.current) clearInterval(pollRef.current);
@@ -238,7 +224,7 @@ export default function ProductsPage() {
       <div>
         <h1 className="font-display text-2xl text-foreground">Produtos</h1>
         <p className="text-sm text-muted-foreground">
-          Cadastro manual de produtos. Para cadastro em massa via planilha, veja a nota abaixo.
+          Cadastro manual de produtos. Para cadastro em massa via planilha, use a importação abaixo.
         </p>
       </div>
 
@@ -354,19 +340,30 @@ export default function ProductsPage() {
         </CardContent>
       </Card>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {(productSearch.error || actionError) && (
+        <p className="text-sm text-destructive">{actionError ?? productSearch.error}</p>
+      )}
 
-      <div className="relative w-full sm:max-w-sm">
-        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          className="pl-9"
-          placeholder="Buscar por nome ou código de barras..."
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-          }}
-        />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <Tabs
+          value={productSearch.status}
+          onValueChange={(value) => productSearch.setStatus(value as ProductStatusFilter)}
+        >
+          <TabsList>
+            <TabsTrigger value="active">Ativos</TabsTrigger>
+            <TabsTrigger value="archived">Arquivados</TabsTrigger>
+            <TabsTrigger value="all">Todos</TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <div className="relative w-full sm:max-w-sm">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-9"
+            placeholder="Buscar por nome, código de barras ou SKU..."
+            value={productSearch.search}
+            onChange={(e) => productSearch.setSearch(e.target.value)}
+          />
+        </div>
       </div>
 
       <Card className="overflow-hidden py-0">
@@ -381,24 +378,31 @@ export default function ProductsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading ? (
+            {productSearch.loading && productSearch.items.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
                   Carregando...
                 </TableCell>
               </TableRow>
-            ) : filteredProducts.length === 0 ? (
+            ) : productSearch.items.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
-                  {products.length === 0
-                    ? 'Nenhum produto cadastrado ainda.'
-                    : 'Nenhum produto encontrado para essa busca.'}
+                  {productSearch.search.trim()
+                    ? 'Nenhum produto encontrado para essa busca.'
+                    : productSearch.status === 'archived'
+                      ? 'Nenhum produto arquivado.'
+                      : 'Nenhum produto cadastrado ainda.'}
                 </TableCell>
               </TableRow>
             ) : (
-              paginate(filteredProducts, page, PAGE_SIZE).map((product) => (
+              productSearch.items.map((product) => (
                 <TableRow key={product.id}>
-                  <TableCell className="font-medium">{product.name}</TableCell>
+                  <TableCell className="font-medium">
+                    <span className="flex flex-wrap items-center gap-2">
+                      {product.name}
+                      {!product.isActive && <Badge variant="secondary">Arquivado</Badge>}
+                    </span>
+                  </TableCell>
                   <TableCell className="font-mono text-xs">{product.barcode}</TableCell>
                   <TableCell>
                     {Number(product.unitPrice).toLocaleString('pt-BR', {
@@ -423,16 +427,29 @@ export default function ProductsPage() {
                       >
                         <Pencil className="size-4" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`Excluir ${product.name}`}
-                        title="Excluir"
-                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        onClick={() => setProductToDelete(product)}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
+                      {product.isActive ? (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Arquivar ${product.name}`}
+                          title="Arquivar"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => setProductToArchive(product)}
+                        >
+                          <Archive className="size-4" />
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Reativar ${product.name}`}
+                          title="Reativar"
+                          disabled={restoringId === product.id}
+                          onClick={() => handleRestore(product)}
+                        >
+                          <ArchiveRestore className="size-4" />
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -441,9 +458,9 @@ export default function ProductsPage() {
           </TableBody>
         </Table>
         <Pagination
-          page={page}
-          totalPages={Math.max(1, Math.ceil(filteredProducts.length / PAGE_SIZE))}
-          onChange={setPage}
+          page={productSearch.page}
+          totalPages={productSearch.totalPages}
+          onChange={productSearch.setPage}
         />
       </Card>
 
@@ -508,22 +525,22 @@ export default function ProductsPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!productToDelete} onOpenChange={(open) => !open && setProductToDelete(null)}>
+      <Dialog open={!!productToArchive} onOpenChange={(open) => !open && setProductToArchive(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Excluir produto</DialogTitle>
+            <DialogTitle>Arquivar produto</DialogTitle>
             <DialogDescription>
-              Tem certeza que deseja excluir <strong>{productToDelete?.name}</strong>? Ele deixará de
-              aparecer no catálogo e no app dos funcionários, mas o histórico de perdas já registradas com
-              ele é mantido.
+              <strong>{productToArchive?.name}</strong> deixará de aparecer no app dos funcionários. O
+              histórico de perdas registradas com ele é mantido, e você pode reativá-lo depois na aba
+              Arquivados.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setProductToDelete(null)} disabled={deleting}>
+            <Button variant="outline" onClick={() => setProductToArchive(null)} disabled={archiving}>
               Cancelar
             </Button>
-            <Button variant="destructive" onClick={handleDeleteConfirmed} disabled={deleting}>
-              {deleting ? 'Excluindo...' : 'Excluir'}
+            <Button variant="destructive" onClick={handleArchiveConfirmed} disabled={archiving}>
+              {archiving ? 'Arquivando...' : 'Arquivar'}
             </Button>
           </DialogFooter>
         </DialogContent>
