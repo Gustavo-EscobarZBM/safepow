@@ -56,6 +56,19 @@ describe('ProductsPage — linha do tempo de preços no diálogo de edição', (
     expect(api.get).toHaveBeenCalledWith('products/p-a/price-history');
   });
 
+  it('o diálogo de edição tem altura limitada e rola por dentro (celular: Salvar nunca fica fora da tela)', async () => {
+    (api.get as Mock).mockImplementation(async (path: string) => {
+      if (path === 'products') return products;
+      if (path === 'products/p-a/price-history') return history(12, 'h-a');
+      throw new Error(`unexpected path: ${path}`);
+    });
+
+    render(<ProductsPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Editar Arroz 5kg' }));
+
+    expect(await screen.findByRole('dialog')).toHaveClass('max-h-[calc(100dvh-2rem)]', 'overflow-y-auto');
+  });
+
   it('erro no histórico não bloqueia a edição: mostra a mensagem e o botão de salvar continua ativo', async () => {
     (api.get as Mock).mockImplementation(async (path: string) => {
       if (path === 'products') return products;

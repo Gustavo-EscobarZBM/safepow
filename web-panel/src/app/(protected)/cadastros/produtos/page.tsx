@@ -448,7 +448,9 @@ export default function ProductsPage() {
       </Card>
 
       <Dialog open={!!productToEdit} onOpenChange={(open) => !open && setProductToEdit(null)}>
-        <DialogContent>
+        {/* Com a linha do tempo de preços o diálogo passa da altura de um celular: limita e rola por
+            dentro, senão o botão "Salvar" fica fora da tela. */}
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Editar produto</DialogTitle>
             <DialogDescription>Altere os dados de {productToEdit?.name} e salve.</DialogDescription>
