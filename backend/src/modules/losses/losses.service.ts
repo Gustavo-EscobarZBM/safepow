@@ -13,7 +13,7 @@ import { QueryLossesDto } from './dto/query-losses.dto';
 import { UpdateLossDto } from './dto/update-loss.dto';
 import { Loss } from './loss.entity';
 import { computeLossAlerts, type LossAlert } from './losses-alerts';
-import { resolveLossValuation } from './losses-valuation';
+import { LOSS_COST_SQL, LOSS_REVENUE_SQL, resolveLossValuation } from './losses-valuation';
 import { projectMonthEnd } from './losses-projection';
 import { computeShrinkageRate } from './losses-shrinkage';
 import { computeSuspiciousPatterns, type SuspiciousPatternEntry } from './losses-suspicious-patterns';
@@ -144,8 +144,8 @@ export class LossesService {
 
   /**
    * Base dos gráficos gerenciais citados na funcionalidade 2 do documento:
-   * produtos mais perdidos e prejuízo financeiro estimado (quantidade x preço
-   * unitário do produto no momento da consulta).
+   * produtos mais perdidos e prejuízo financeiro (quantidade x preço congelado da perda —
+   * o vigente em occurredAt, não o preço atual do produto).
    */
   async reportByProduct(query: QueryLossesDto) {
     const manager = getTenantManager();
@@ -155,8 +155,8 @@ export class LossesService {
       .select('product.id', 'productId')
       .addSelect('product.name', 'productName')
       .addSelect('SUM(loss.quantity)', 'totalQuantity')
-      .addSelect('SUM(loss.quantity * product.unitPrice)', 'totalFinancialLoss')
-      .addSelect('SUM(loss.quantity * product.costPrice)', 'totalCostLoss')
+      .addSelect(`SUM(${LOSS_REVENUE_SQL})`, 'totalFinancialLoss')
+      .addSelect(`SUM(${LOSS_COST_SQL})`, 'totalCostLoss')
       .groupBy('product.id')
       .addGroupBy('product.name')
       .orderBy('"totalFinancialLoss"', 'DESC');
@@ -221,10 +221,9 @@ export class LossesService {
     const manager = getTenantManager();
     const raw = await manager
       .createQueryBuilder(Loss, 'loss')
-      .innerJoin(Product, 'product', 'product.id = loss.productId')
       .select('COALESCE(SUM(loss.quantity), 0)', 'totalQuantity')
-      .addSelect('COALESCE(SUM(loss.quantity * product.unitPrice), 0)', 'totalFinancialLoss')
-      .addSelect('COALESCE(SUM(loss.quantity * product.costPrice), 0)', 'totalCostLoss')
+      .addSelect(`COALESCE(SUM(${LOSS_REVENUE_SQL}), 0)`, 'totalFinancialLoss')
+      .addSelect(`COALESCE(SUM(${LOSS_COST_SQL}), 0)`, 'totalCostLoss')
       .where('loss.occurredAt >= :from AND loss.occurredAt < :to', { from, to })
       .getRawOne<{ totalQuantity: string; totalFinancialLoss: string; totalCostLoss: string }>();
     return {
@@ -245,10 +244,9 @@ export class LossesService {
 
     const qb = manager
       .createQueryBuilder(Loss, 'loss')
-      .innerJoin(Product, 'product', 'product.id = loss.productId')
       .select("DATE_TRUNC('day', loss.occurredAt)", 'date')
       .addSelect('SUM(loss.quantity)', 'totalQuantity')
-      .addSelect('SUM(loss.quantity * product.unitPrice)', 'totalFinancialLoss')
+      .addSelect(`SUM(${LOSS_REVENUE_SQL})`, 'totalFinancialLoss')
       .where('loss.occurredAt BETWEEN :from AND :to', { from, to })
       .groupBy("DATE_TRUNC('day', loss.occurredAt)")
       .orderBy("DATE_TRUNC('day', loss.occurredAt)", 'ASC');
@@ -261,12 +259,11 @@ export class LossesService {
     const manager = getTenantManager();
     const qb = manager
       .createQueryBuilder(Loss, 'loss')
-      .innerJoin(Product, 'product', 'product.id = loss.productId')
       .innerJoin(LossReason, 'reason', 'reason.id = loss.reasonId')
       .select('reason.id', 'id')
       .addSelect('reason.name', 'label')
       .addSelect('SUM(loss.quantity)', 'totalQuantity')
-      .addSelect('SUM(loss.quantity * product.unitPrice)', 'totalFinancialLoss')
+      .addSelect(`SUM(${LOSS_REVENUE_SQL})`, 'totalFinancialLoss')
       .groupBy('reason.id')
       .addGroupBy('reason.name')
       .orderBy('"totalFinancialLoss"', 'DESC');
@@ -283,12 +280,11 @@ export class LossesService {
     const manager = getTenantManager();
     const qb = manager
       .createQueryBuilder(Loss, 'loss')
-      .innerJoin(Product, 'product', 'product.id = loss.productId')
       .innerJoin(LossLocation, 'location', 'location.id = loss.locationId')
       .select('location.id', 'id')
       .addSelect('location.name', 'label')
       .addSelect('SUM(loss.quantity)', 'totalQuantity')
-      .addSelect('SUM(loss.quantity * product.unitPrice)', 'totalFinancialLoss')
+      .addSelect(`SUM(${LOSS_REVENUE_SQL})`, 'totalFinancialLoss')
       .groupBy('location.id')
       .addGroupBy('location.name')
       .orderBy('"totalFinancialLoss"', 'DESC');
@@ -326,7 +322,7 @@ export class LossesService {
     ];
 
     for (const loss of losses) {
-      const unitPrice = Number(loss.product?.unitPrice ?? 0);
+      const unitPrice = Number(loss.unitPriceAtLoss);
       const quantity = Number(loss.quantity);
       sheet.addRow({
         occurredAt: loss.occurredAt,
@@ -465,7 +461,7 @@ export class LossesService {
       .innerJoin(Product, 'product', 'product.id = loss.productId')
       .select('product.id', 'id')
       .addSelect('product.name', 'name')
-      .addSelect('SUM(loss.quantity * product.unitPrice)', 'total')
+      .addSelect(`SUM(${LOSS_REVENUE_SQL})`, 'total')
       .where('loss.occurredAt BETWEEN :from AND :to', { from, to })
       .groupBy('product.id')
       .addGroupBy('product.name')
