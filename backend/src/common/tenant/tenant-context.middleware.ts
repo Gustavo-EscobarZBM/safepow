@@ -54,6 +54,11 @@ export class TenantContextMiddleware implements NestMiddleware {
           payload.companyId,
         ]);
       }
+      if (payload?.sub) {
+        // Quem está agindo — lido pelo trigger do histórico de preço (changedByUserId). Um id que não
+        // existe mais (token de usuário excluído) vira NULL lá dentro (migration 1700000013000).
+        await queryRunner.query(`SELECT set_config('app.current_user_id', $1, true)`, [payload.sub]);
+      }
 
       const context = {
         userId: payload?.sub ?? '',

@@ -36,6 +36,8 @@ export class ImportsProcessor extends WorkerHost {
 
     await this.dataSource.transaction(async (manager) => {
       await manager.query(`SELECT set_config('app.current_company_id', $1, true)`, [companyId]);
+      // Origem das mudanças de preço desta transação — o trigger do histórico registra 'import'.
+      await manager.query(`SELECT set_config('app.change_source', 'import', true)`);
 
       const importJob = await manager.findOne(ImportJob, { where: { id: importJobId } });
       if (!importJob) {

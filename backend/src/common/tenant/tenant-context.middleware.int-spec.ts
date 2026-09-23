@@ -100,6 +100,11 @@ async function startServer(dataSource: DataSource): Promise<TestServer> {
   app.post('/created', (_req, res) => void insertProductAndRespond(res, 201, 'F16-COMMIT'));
   app.post('/conflict', (_req, res) => void insertProductAndRespond(res, 409, 'F16-ROLLBACK'));
   app.post('/double', (_req, res) => void insertProductAndRespondTwice(res, 'F16-DOUBLE'));
+  app.post('/user-setting', (_req, res) => {
+    void getTenantManager()
+      .query(`SELECT current_setting('app.current_user_id', true) AS value`)
+      .then((rows: { value: string | null }[]) => res.status(200).json({ value: rows[0].value }));
+  });
   // Corpo de tipo inválido: nosso `end` adia a chamada, e o `end` real só lança depois do commit.
   app.post('/invalid-end', (_req, res) => {
     res.status(200);
@@ -214,5 +219,33 @@ describe('TenantContextMiddleware — a resposta só sai depois do commit (F16)'
       const rows = await adminQuery(`SELECT 1 FROM products WHERE barcode = 'F16-COMMIT'`);
       expect(rows).toHaveLength(0);
     });
+  });
+});
+
+describe('TenantContextMiddleware — app.current_user_id para o histórico de preço', () => {
+  const USER_ID = '00000000-0000-4000-8000-000000000002';
+  let server: TestServer;
+
+  beforeAll(async () => {
+    server = await startServer(await appDataSource());
+  });
+  afterAll(async () => {
+    await server.close();
+    await closeTestConnections();
+  });
+
+  it('define app.current_user_id com o sub do token', async () => {
+    await truncateAll();
+    const companyId = await seedCompany('Empresa Usuário');
+    const token = await new JwtService({ secret: JWT_SECRET }).signAsync({
+      sub: USER_ID,
+      role: UserRole.MANAGER,
+      companyId,
+    });
+
+    const { status, body } = await post(server.baseUrl, '/user-setting', token);
+
+    expect(status).toBe(200);
+    expect(JSON.parse(body)).toEqual({ value: USER_ID });
   });
 });
