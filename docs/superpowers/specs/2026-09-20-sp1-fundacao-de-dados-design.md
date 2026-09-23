@@ -403,6 +403,12 @@ no cadastro concorrente que viola o índice único), `PATCH /products/:id/restor
 reativa arquivado. Contratos HTTP testados numa app Nest real (`products.http.int-spec.ts`). Medição com
 100 mil produtos: sem filtro 96 ms (página 1) e ~200 ms (página 2500); nome por conteúdo 163–240 ms; código por prefixo ~180 ms; sem resultado 78–131 ms; `status=all&sort=updatedAt` ~90 ms (Postgres 16 local, tempos com a transação de tenant) ⇒ todos abaixo de ~300 ms — **sem `pg_trgm`** (R7 mantido; D6 continua em aberto para catálogos maiores).
 
+**Resultado da 1.3.2 (2026-09-23):** Cadastros › Produtos busca e pagina no servidor (`useProductSearch`:
+debounce de 300 ms, só a última busca é aplicada, volta à última página que existe), abas Ativos |
+Arquivados | Todos, "Arquivar" (texto explica app/histórico/reativar), "Reativar" nos arquivados e
+"Reativar e atualizar os dados" no conflito com arquivado; `ApiError` com `errorCode`/`data`; 409 da
+edição também com `errorCode`. Etapa 1.3 concluída. Verificado no navegador (busca com debounce = 1 chamada por pausa; arquivar → aba Arquivados; recadastrar o código → "Reativar e atualizar os dados" → volta a Ativos). Observado de passagem: o painel inteiro não tem layout de celular (barra lateral fixa de 256 px deixa 119 px de conteúdo em 375 px) — problema antigo, fora do escopo, registrado como tarefa separada.
+
 **Pronto quando:** arquivar → recadastrar o mesmo código oferece reativar; o painel lista 100 mil
 produtos com busca e paginação no servidor; `findByBarcode` não devolve arquivado.
 
