@@ -9,10 +9,10 @@ class App extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Controle de Perdas de Estoque',
+      title: 'SAFEPOW',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorSchemeSeed: const Color(0xFF1F3864),
+        colorSchemeSeed: const Color(0xFF01352E),
         useMaterial3: true,
       ),
       home: const _SessionGate(),
