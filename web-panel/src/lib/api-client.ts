@@ -2,9 +2,17 @@
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** Código estável do backend (ex.: 'PRODUCT_ARCHIVED_EXISTS'), quando o corpo de erro trouxer um. */
+  errorCode?: string;
+  /** Corpo de erro inteiro (ex.: `productId` do conflito com produto arquivado). */
+  data: unknown;
+
+  constructor(status: number, message: string, data: unknown = null) {
     super(message);
     this.status = status;
+    this.data = data;
+    const code = (data as { errorCode?: unknown } | null)?.errorCode;
+    this.errorCode = typeof code === 'string' ? code : undefined;
   }
 }
 
@@ -25,9 +33,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
   if (!response.ok) {
     if (response.status === 402) {
-      throw new ApiError(402, data?.message || 'Acesso suspenso. Assinatura inativa.');
+      throw new ApiError(402, data?.message || 'Acesso suspenso. Assinatura inativa.', data);
     }
-    throw new ApiError(response.status, data?.message || 'Erro inesperado.');
+    throw new ApiError(response.status, data?.message || 'Erro inesperado.', data);
   }
 
   return data as T;
@@ -44,9 +52,9 @@ async function requestForm<T>(path: string, formData: FormData): Promise<T> {
 
   if (!response.ok) {
     if (response.status === 402) {
-      throw new ApiError(402, data?.message || 'Acesso suspenso. Assinatura inativa.');
+      throw new ApiError(402, data?.message || 'Acesso suspenso. Assinatura inativa.', data);
     }
-    throw new ApiError(response.status, data?.message || 'Erro inesperado.');
+    throw new ApiError(response.status, data?.message || 'Erro inesperado.', data);
   }
 
   return data as T;
@@ -56,7 +64,7 @@ async function requestBlob(path: string): Promise<Blob> {
   const response = await fetch(`/api/backend/${path}`, { cache: 'no-store' });
   if (!response.ok) {
     const data = await response.json().catch(() => null);
-    throw new ApiError(response.status, data?.message || 'Erro ao gerar arquivo.');
+    throw new ApiError(response.status, data?.message || 'Erro ao gerar arquivo.', data);
   }
   return response.blob();
 }

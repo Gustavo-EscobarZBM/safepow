@@ -33,6 +33,17 @@ export interface PriceHistoryEntry {
   changedByName: string | null;
 }
 
+/** Filtro de status da busca de produtos (backend: GET /products/search?status=). */
+export type ProductStatusFilter = 'active' | 'archived' | 'all';
+
+/** Resposta de GET /products/search. */
+export interface ProductSearchResult {
+  items: Product[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface UpdateProductInput {
   barcode?: string;
   sku?: string;
