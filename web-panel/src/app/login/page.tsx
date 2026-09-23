@@ -2,12 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Logo } from '@/components/logo';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
@@ -17,7 +13,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { clearRememberedEmail, saveRememberedEmail } from '@/lib/remembered-email';
 import type { SessionUser } from '@/lib/types';
+import { BrandPanel } from './brand-panel';
+import { LoginForm, type LoginValues } from './login-form';
 
 function redirectPathForRole(role: SessionUser['role']) {
   if (role === 'master_admin') return '/master/companies';
@@ -36,13 +35,14 @@ const QUICK_LOGINS = [
   { role: 'employee' as const, label: 'Funcionário', email: 'funcionario.demo@safepow.com', password: 'demo1234' },
 ];
 
+type LoginOutcome = 'entered' | 'pending-acknowledgement' | 'failed';
+
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [quickRole, setQuickRole] = useState<string | null>(null);
+  const [status, setStatus] = useState<'idle' | 'success'>('idle');
 
   // "Vencido": login é permitido, mas o acesso ao painel fica represado até o
   // usuário marcar ciência no modal — não pode ser fechado clicando fora.
@@ -51,11 +51,12 @@ export default function LoginPage() {
   const [aware, setAware] = useState(false);
 
   function enterPanel(role: SessionUser['role']) {
+    setStatus('success');
     router.push(redirectPathForRole(role));
     router.refresh();
   }
 
-  async function performLogin(loginEmail: string, loginPassword: string) {
+  async function performLogin(loginEmail: string, loginPassword: string): Promise<LoginOutcome> {
     setError(null);
     try {
       const response = await fetch('/api/auth/login', {
@@ -67,33 +68,41 @@ export default function LoginPage() {
 
       if (!response.ok) {
         setError(data.message || 'Não foi possível entrar.');
-        return;
+        return 'failed';
       }
 
       if (data.companyStatus === 'past_due') {
         setCompanyDueDate(data.companyDueDate ?? null);
         setAware(false);
         setPendingUser(data.user);
-        return;
+        return 'pending-acknowledgement';
       }
 
       enterPanel(data.user.role);
+      return 'entered';
     } catch {
-      setError('Erro de conexão com o servidor.');
+      setError('Não foi possível conectar ao servidor. Verifique sua internet e tente novamente.');
+      return 'failed';
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit({ email, password, rememberEmail }: LoginValues) {
     setLoading(true);
-    await performLogin(email, password);
-    setLoading(false);
+    const outcome = await performLogin(email, password);
+    if (outcome !== 'failed') {
+      if (rememberEmail) saveRememberedEmail(email);
+      else clearRememberedEmail();
+    }
+    // Ao entrar no painel o botão segue travado até a navegação terminar.
+    if (outcome !== 'entered') setLoading(false);
   }
 
-  async function handleQuickLogin(login: (typeof QUICK_LOGINS)[number]) {
-    setQuickRole(login.role);
-    await performLogin(login.email, login.password);
-    setQuickRole(null);
+  async function handleQuickLogin(role: string) {
+    const login = QUICK_LOGINS.find((item) => item.role === role);
+    if (!login) return;
+    setQuickRole(role);
+    const outcome = await performLogin(login.email, login.password);
+    if (outcome !== 'entered') setQuickRole(null);
   }
 
   function handleContinueToPanel() {
@@ -102,67 +111,20 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/40 px-4">
-      <ThemeToggle iconOnly className="fixed top-4 right-4" />
-      <Card className="w-full max-w-sm">
-        <CardHeader className="items-center pb-2 text-center">
-          <Logo variant="light" className="mb-2 flex-col text-center [&>div]:items-center" />
-          <p className="pt-3 text-sm text-muted-foreground">Painel de gestão</p>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="email">E-mail</Label>
-              <Input
-                id="email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="password">Senha</Label>
-              <Input
-                id="password"
-                type="password"
-                required
-                minLength={6}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
+    <div className="grid min-h-screen bg-background lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+      <BrandPanel status={status} />
 
-            {error && <p className="text-sm text-destructive">{error}</p>}
-
-            <Button type="submit" disabled={loading} className="w-full">
-              {loading ? 'Entrando...' : 'Entrar'}
-            </Button>
-          </form>
-
-          {QUICK_LOGIN_ENABLED && (
-            <div className="mt-6 space-y-2 rounded-lg border border-dashed border-warning/40 bg-warning/10 p-3">
-              <p className="text-center text-[0.7rem] font-semibold uppercase tracking-wide text-warning-foreground">
-                Acesso rápido (somente testes)
-              </p>
-              <div className="grid grid-cols-1 gap-1.5">
-                {QUICK_LOGINS.map((login) => (
-                  <Button
-                    key={login.role}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={loading || quickRole !== null}
-                    onClick={() => handleQuickLogin(login)}
-                  >
-                    {quickRole === login.role ? 'Entrando...' : `Entrar como ${login.label}`}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <main className="relative flex">
+        <ThemeToggle iconOnly className="absolute right-4 top-4" />
+        <LoginForm
+          onSubmit={handleSubmit}
+          loading={loading}
+          error={error}
+          quickLogins={QUICK_LOGIN_ENABLED ? QUICK_LOGINS.map(({ role, label }) => ({ role, label })) : undefined}
+          onQuickLogin={handleQuickLogin}
+          quickLoginRole={quickRole}
+        />
+      </main>
 
       <Dialog open={!!pendingUser} onOpenChange={() => undefined}>
         <DialogContent

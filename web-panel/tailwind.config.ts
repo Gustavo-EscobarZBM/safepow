@@ -74,6 +74,24 @@ const config: Config = {
           5: 'rgb(var(--chart-5) / <alpha-value>)',
         },
       },
+      // Leitura de código de barras da tela de login: a linha dourada varre as barras
+      // e a camada "lida" é revelada por trás dela (clip-path), sincronizadas.
+      keyframes: {
+        'scan-line': {
+          '0%': { left: '0%' },
+          '100%': { left: 'calc(100% - 2px)' },
+        },
+        'scan-read': {
+          '0%': { clipPath: 'inset(0 100% 0 0)' },
+          '100%': { clipPath: 'inset(0 0 0 0)' },
+        },
+      },
+      animation: {
+        'scan-line': 'scan-line 7s ease-in-out infinite alternate',
+        'scan-read': 'scan-read 7s ease-in-out infinite alternate',
+        'scan-line-once': 'scan-line 0.9s ease-out 1 forwards',
+        'scan-read-once': 'scan-read 0.9s ease-out 1 forwards',
+      },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
