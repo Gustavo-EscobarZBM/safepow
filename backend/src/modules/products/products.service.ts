@@ -3,6 +3,7 @@ import { getTenantContext, getTenantManager } from '../../common/tenant/tenant-s
 import { User } from '../users/user.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { barcodeConflict, isBarcodeUniqueViolation } from './product-errors';
 import { Product } from './product.entity';
 import { PriceChangeSource, ProductPriceHistory } from './product-price-history.entity';
 
@@ -34,7 +35,7 @@ export class ProductsService {
 
     const existing = await manager.findOne(Product, { where: { companyId: companyId!, barcode: dto.barcode } });
     if (existing) {
-      throw new ConflictException('Já existe um produto com este código de barras.');
+      throw barcodeConflict(existing);
     }
 
     const product = manager.create(Product, {
@@ -45,7 +46,14 @@ export class ProductsService {
       unitPrice: dto.unitPrice ?? 0,
       costPrice: dto.costPrice ?? 0,
     });
-    return manager.save(product);
+    try {
+      return await manager.save(product);
+    } catch (error) {
+      // Dois cadastros simultâneos do mesmo código: o segundo passa pela checagem acima e esbarra no
+      // índice único — responde o mesmo 409 em vez de 500.
+      if (isBarcodeUniqueViolation(error)) throw barcodeConflict(null);
+      throw error;
+    }
   }
 
   findAll(sinceIso?: string): Promise<Product[]> {
