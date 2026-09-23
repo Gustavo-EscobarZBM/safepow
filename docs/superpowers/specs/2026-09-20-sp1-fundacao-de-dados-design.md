@@ -313,6 +313,13 @@ commit, e o backfill da 12000 reescreve todas as perdas.
 - Diálogo de edição do produto ganha a linha do tempo de preços (lista simples: data, preço, custo,
   quem alterou, origem). Nenhuma outra tela muda.
 
+**Resultado (sub-etapa 1.2.4, 2026-09-23):** `PriceHistoryTimeline` no diálogo "Editar produto"
+(`cadastros/produtos/page.tsx`), buscando `GET /products/:id/price-history` ao abrir, com descarte de
+resposta atrasada de outro produto; o diálogo limita a altura e rola por dentro no celular. Verificado no
+navegador (tema escuro/claro, 375×560): a mudança de preço aparece no topo como "Manual · por <gerente>".
+Etapa 1.2 (valor congelado + histórico de preço) concluída. Migrations 10000–13000 aplicadas no banco de
+desenvolvimento em 2026-09-23 (autorizado pelo usuário, sem backup).
+
 ### 4.4 Testes (sub-etapas 1.2.2–1.2.3, TDD — escrever primeiro e ver falhar)
 
 Unitários (`*.spec.ts`, `manager` mockado, no estilo atual):
