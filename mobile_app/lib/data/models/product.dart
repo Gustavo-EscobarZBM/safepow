@@ -5,12 +5,16 @@ class Product {
   final String name;
   final double unitPrice;
 
+  /// false = produto arquivado (tombstone do sync — SP1, 6.2). O banco local só guarda ativos.
+  final bool isActive;
+
   Product({
     required this.id,
     required this.barcode,
     required this.name,
     required this.unitPrice,
     this.sku,
+    this.isActive = true,
   });
 
   factory Product.fromApiJson(Map<String, dynamic> json) {
@@ -20,6 +24,7 @@ class Product {
       sku: json['sku'] as String?,
       name: json['name'] as String,
       unitPrice: double.tryParse(json['unitPrice'].toString()) ?? 0,
+      isActive: json['isActive'] as bool? ?? true,
     );
   }
 
