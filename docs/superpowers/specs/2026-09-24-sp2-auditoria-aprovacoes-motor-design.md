@@ -153,6 +153,18 @@ append-only (role de runtime não faz `UPDATE`/`DELETE`); exclusão de empresa e
 filtros/paginação e 400 em query inválida; CSV. Unitários: `AuditService`, mapa de rótulos (web), página e
 gaveta (vitest). HTTP (app Nest real): `X-Request-Id`, `source` mobile × web pelo `User-Agent`.
 
+**Divisão da etapa (2026-09-24):** 2.1.1 = backend; 2.1.2 = web (página Auditoria + gaveta Histórico).
+**Resultado da 2.1.1 (2026-09-24):** migrations `1700000015000-AuditLog` (tabela append-only com RLS e
+`audit_insert`) e `1700000016000-AuditTriggers` (trigger nas 7 tabelas); middleware define `app.audit_source`
+(web/mobile pelo User-Agent), `app.request_id` (+ cabeçalho `X-Request-Id`) e `app.client_ip`; eventos de
+login/falha e resumo de importação; `GET /audit` e `/audit/export` (CSV). **Decisões da execução:** variável
+`app.audit_source` própria (a `app.change_source` é do histórico de preço); `audit_insert` grava com a
+empresa da linha mesmo fora de contexto de tenant; empresa inexistente não audita (exclusão em cascata);
+coluna `entityLabel`; falha ao auditar login não derruba o login. **Achado fora do escopo:** num banco cujo
+dono das tabelas não é superusuário (o harness de testes imita esse cenário), `auth_lookup_user_by_email`
+não enxerga usuários com empresa (FORCE RLS em `users`) — o login quebraria; no desenvolvimento funciona
+porque o dono é `postgres`. Não corrigido aqui; aguarda decisão do usuário.
+
 **Pronto quando:** toda mudança em produto, motivo, local, perda, usuário, empresa e faturamento aparece no
 Histórico e na página Auditoria com quem/quando/o quê/de onde; logins e importações aparecem como eventos;
 ninguém consegue alterar ou apagar uma linha do log pela aplicação.
