@@ -24,6 +24,8 @@ function callAuditInsert(manager: { query: (sql: string, params?: unknown[]) => 
   );
 }
 
+// Os triggers (1700000016000) também gravam ao semear empresa/usuário: cada teste olha só o evento
+// 'product' que ele mesmo gravou via audit_insert.
 describe('audit_log e audit_insert (migration 1700000015000)', () => {
   beforeEach(() => truncateAll());
   afterAll(() => closeTestConnections());
@@ -42,7 +44,7 @@ describe('audit_log e audit_insert (migration 1700000015000)', () => {
       await callAuditInsert(manager, companyId);
     });
 
-    const [row] = await adminQuery(`SELECT * FROM audit_log`);
+    const [row] = await adminQuery(`SELECT * FROM audit_log WHERE "entityType" = 'product'`);
     expect(row).toMatchObject({
       companyId,
       actorUserId: userId,
@@ -64,7 +66,7 @@ describe('audit_log e audit_insert (migration 1700000015000)', () => {
 
     await callAuditInsert(await appDataSource(), companyId);
 
-    const [row] = await adminQuery(`SELECT "actorUserId", "actorName", source FROM audit_log`);
+    const [row] = await adminQuery(`SELECT "actorUserId", "actorName", source FROM audit_log WHERE "entityType" = 'product'`);
     expect(row).toEqual({ actorUserId: null, actorName: null, source: 'system' });
   });
 
@@ -77,13 +79,13 @@ describe('audit_log e audit_insert (migration 1700000015000)', () => {
       return manager.query(`SELECT current_setting('app.current_company_id', true) AS after`);
     });
 
-    expect(await adminQuery(`SELECT "companyId" FROM audit_log`)).toEqual([{ companyId }]);
+    expect(await adminQuery(`SELECT "companyId" FROM audit_log WHERE "entityType" = 'product'`)).toEqual([{ companyId }]);
     expect(after ?? '').toBe('');
   });
 
   it('empresa inexistente (sendo excluída): não grava nada', async () => {
     await callAuditInsert(await appDataSource(), randomUUID());
-    expect(await adminQuery(`SELECT id FROM audit_log`)).toHaveLength(0);
+    expect(await adminQuery(`SELECT id FROM audit_log WHERE "entityType" = 'product'`)).toHaveLength(0);
   });
 
   it('append-only: o role da aplicação não consegue alterar nem apagar, nem na própria empresa', async () => {
@@ -104,7 +106,7 @@ describe('audit_log e audit_insert (migration 1700000015000)', () => {
     await withTenant({ companyId: a }, (manager) => callAuditInsert(manager, a));
     await withTenant({ companyId: b }, (manager) => callAuditInsert(manager, b));
 
-    const visible = await withTenant({ companyId: a }, (manager) => manager.query(`SELECT "companyId" FROM audit_log`));
+    const visible = await withTenant({ companyId: a }, (manager) => manager.query(`SELECT "companyId" FROM audit_log WHERE "entityType" = 'product'`));
 
     expect(visible).toEqual([{ companyId: a }]);
   });
