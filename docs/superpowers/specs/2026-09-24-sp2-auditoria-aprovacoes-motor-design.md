@@ -164,6 +164,14 @@ coluna `entityLabel`; falha ao auditar login não derruba o login. **Achado fora
 dono das tabelas não é superusuário (o harness de testes imita esse cenário), `auth_lookup_user_by_email`
 não enxerga usuários com empresa (FORCE RLS em `users`) — o login quebraria; no desenvolvimento funciona
 porque o dono é `postgres`. Não corrigido aqui; aguarda decisão do usuário.
+**Revisão final da 2.1.1:** 0 críticos; 3 importantes corrigidos com TDD — CSV neutraliza fórmulas (`=`, `+`,
+`-`, `@`), datas ISO que o `Date` não entende dão 400 (não 500), e ações do Painel Master (criar, editar,
+bloquear, renovar, desbloquear) passam a gravar autor/origem/requestId/IP (`applyRequestAuditContext`). 11
+menores registrados para as próximas etapas: contadores da importação incrementados antes do save; login
+com empresa bloqueada não gera evento; `login_failed` com ator = dono da conta; sem limite de tentativas;
+`trust proxy`/`isIP` no `auth.controller`; CSV em UTC; `to` só com data exclui o dia; expor `X-Request-Id`
+no CORS (2.1.2); faltam testes de cascata com perdas, unitário do `AuditService` e `from > to`; formato
+de `changes` em create/delete leva `from: null`/`to: null`.
 
 **Pronto quando:** toda mudança em produto, motivo, local, perda, usuário, empresa e faturamento aparece no
 Histórico e na página Auditoria com quem/quando/o quê/de onde; logins e importações aparecem como eventos;
