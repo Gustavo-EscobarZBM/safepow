@@ -459,6 +459,13 @@ App (`flutter test`, `sqflite_common_ffi` já é dependência de desenvolvimento
   página **não** altera o catálogo), incremental aplica tombstone (produto arquivado some), cursor só
   gravado no fim, servidor antigo sem cabeçalhos.
 
+**Divisão da etapa (2026-09-24):** 1.4.1 = backend (6.1 e testes de backend de 6.3); 1.4.2 = app (6.2 e
+testes do app). **Resultado da 1.4.1 (2026-09-24):** `GET /products` com `SyncProductsQueryDto` (`since`
+validado — aceita o formato do Dart; `includeArchived`, `limit` 1–10000, `after` com microssegundos) e
+`findForSync` (sem parâmetros novos = consulta antiga, idêntica); cabeçalhos `X-Sync-Cursor` (now() do
+banco) e `X-Next-After` (só página cheia); migration `1700000014000-ProductsSyncIndex` (o spec citava
+12000, número já usado). Paginação com o mesmo updatedAt coberta por teste de regressão (R5).
+
 **Pronto quando:** arquivar no painel remove o produto do celular no próximo sync (inclusive
 instalações antigas, via re-sync total do v2); relógio do aparelho errado não perde mudanças; nenhuma
 perda pendente é apagada por atualização do app.
