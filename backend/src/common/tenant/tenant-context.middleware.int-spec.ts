@@ -105,6 +105,20 @@ async function startServer(dataSource: DataSource): Promise<TestServer> {
       .query(`SELECT current_setting('app.current_user_id', true) AS value`)
       .then((rows: { value: string | null }[]) => res.status(200).json({ value: rows[0].value }));
   });
+  app.post('/audit-context', (_req, res) => {
+    void getTenantManager()
+      .query(
+        `SELECT current_setting('app.audit_source', true) AS source,
+                current_setting('app.request_id', true) AS "requestId",
+                current_setting('app.client_ip', true) AS ip`,
+      )
+      .then((rows: Record<string, string>[]) => res.status(200).json(rows[0]));
+  });
+  app.post('/touch-product', (_req, res) => {
+    void getTenantManager()
+      .query(`UPDATE products SET name = name || ' (editado)', "unitPrice" = "unitPrice" + 1 RETURNING id`)
+      .then((rows: { id: string }[]) => res.status(200).json({ id: rows[0].id }));
+  });
   // Corpo de tipo inválido: nosso `end` adia a chamada, e o `end` real só lança depois do commit.
   app.post('/invalid-end', (_req, res) => {
     res.status(200);
@@ -125,14 +139,23 @@ async function startServer(dataSource: DataSource): Promise<TestServer> {
 }
 
 /** Resolve quando o corpo da resposta terminou de chegar ao cliente. */
-function post(baseUrl: string, path: string, token: string): Promise<{ status: number; body: string }> {
+function post(
+  baseUrl: string,
+  path: string,
+  token: string,
+  extraHeaders: Record<string, string> = {},
+): Promise<{ status: number; body: string; headers: http.IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
-    const request = http.request(`${baseUrl}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }, (response) => {
-      let body = '';
-      response.setEncoding('utf8');
-      response.on('data', (chunk: string) => (body += chunk));
-      response.on('end', () => resolve({ status: response.statusCode ?? 0, body }));
-    });
+    const request = http.request(
+      `${baseUrl}${path}`,
+      { method: 'POST', headers: { Authorization: `Bearer ${token}`, ...extraHeaders } },
+      (response) => {
+        let body = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk: string) => (body += chunk));
+        response.on('end', () => resolve({ status: response.statusCode ?? 0, body, headers: response.headers }));
+      },
+    );
     request.on('error', reject);
     request.end();
   });
@@ -247,5 +270,69 @@ describe('TenantContextMiddleware — app.current_user_id para o histórico de p
 
     expect(status).toBe(200);
     expect(JSON.parse(body)).toEqual({ value: USER_ID });
+  });
+});
+
+describe('TenantContextMiddleware — contexto de auditoria (SP2)', () => {
+  let server: TestServer;
+  let token: string;
+  let companyId: string;
+  let managerId: string;
+
+  beforeAll(async () => {
+    server = await startServer(await appDataSource());
+  });
+  afterAll(async () => {
+    await server.close();
+    await closeTestConnections();
+  });
+  beforeEach(async () => {
+    await truncateAll();
+    companyId = await seedCompany('Empresa Contexto');
+    managerId = (
+      await adminQuery(
+        `INSERT INTO users (name, email, "passwordHash", role, "companyId") VALUES ('Gerente Contexto', 'ctx@teste.local', 'x', 'manager', $1) RETURNING id`,
+        [companyId],
+      )
+    )[0].id;
+    token = await new JwtService({ secret: JWT_SECRET }).signAsync({ sub: managerId, role: UserRole.MANAGER, companyId });
+  });
+
+  it('navegador ⇒ source web; requestId igual ao cabeçalho X-Request-Id; IP preenchido', async () => {
+    const { body, headers } = await post(server.baseUrl, '/audit-context', token, { 'User-Agent': 'Mozilla/5.0' });
+    const context = JSON.parse(body);
+
+    expect(context.source).toBe('web');
+    expect(context.requestId).toBe(headers['x-request-id']);
+    expect(context.requestId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(context.ip).not.toBe('');
+  });
+
+  it('app Flutter (User-Agent Dart/...) ⇒ source mobile', async () => {
+    const { body } = await post(server.baseUrl, '/audit-context', token, { 'User-Agent': 'Dart/3.5 (dart:io)' });
+    expect(JSON.parse(body).source).toBe('mobile');
+  });
+
+  it('editar produto pelo painel grava histórico de preço (manual) E auditoria (web) com ator e requestId', async () => {
+    const productId = (
+      await adminQuery(
+        `INSERT INTO products ("companyId", barcode, name, "unitPrice") VALUES ($1, '1', 'Arroz', 10) RETURNING id`,
+        [companyId],
+      )
+    )[0].id;
+
+    const { status, headers } = await post(server.baseUrl, '/touch-product', token, { 'User-Agent': 'Mozilla/5.0' });
+
+    expect(status).toBe(200);
+    const history = await adminQuery(
+      `SELECT source FROM product_price_history WHERE "productId" = $1 ORDER BY seq DESC LIMIT 1`,
+      [productId],
+    );
+    expect(history[0].source).toBe('manual');
+    const [audit] = await adminQuery(
+      `SELECT source, "actorUserId", "requestId" FROM audit_log WHERE "entityId" = $1 AND action = 'update'`,
+      [productId],
+    );
+    expect(audit).toEqual({ source: 'web', actorUserId: managerId, requestId: headers['x-request-id'] });
   });
 });

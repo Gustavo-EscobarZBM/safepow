@@ -1,9 +1,12 @@
 import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import { isIP } from 'net';
 import { JwtService } from '@nestjs/jwt';
 import { NextFunction, Request, Response } from 'express';
 import { DataSource, QueryRunner } from 'typeorm';
 import { tenantStorage } from './tenant-storage';
 import { UserRole } from '../../modules/users/user.entity';
+import { auditSourceFromUserAgent } from '../../modules/audit/audit-events';
 
 export interface JwtPayload {
   sub: string; // userId
@@ -16,6 +19,7 @@ export interface JwtPayload {
 declare module 'express' {
   interface Request {
     authUser?: JwtPayload;
+    requestId?: string;
   }
 }
 
@@ -29,6 +33,10 @@ export class TenantContextMiddleware implements NestMiddleware {
   ) {}
 
   async use(req: Request, res: Response, next: NextFunction) {
+    const requestId = randomUUID();
+    req.requestId = requestId;
+    res.setHeader('X-Request-Id', requestId);
+
     const authHeader = req.headers['authorization'];
     let payload: JwtPayload | null = null;
 
@@ -59,6 +67,16 @@ export class TenantContextMiddleware implements NestMiddleware {
         // existe mais (token de usuário excluído) vira NULL lá dentro (migration 1700000013000).
         await queryRunner.query(`SELECT set_config('app.current_user_id', $1, true)`, [payload.sub]);
       }
+
+      // Contexto da auditoria (SP2): origem (app × painel), id da requisição e IP — lidos pelo audit_insert.
+      // Variável própria (app.audit_source), NÃO app.change_source: o histórico de preço usa esta última e
+      // só aceita manual/import/…; gravar web/mobile nela quebraria toda edição de produto.
+      const clientIp = req.ip && isIP(req.ip.replace(/^::ffff:/, '')) ? req.ip.replace(/^::ffff:/, '') : '';
+      await queryRunner.query(
+        `SELECT set_config('app.audit_source', $1, true), set_config('app.request_id', $2, true),
+                set_config('app.client_ip', $3, true)`,
+        [auditSourceFromUserAgent(req.headers['user-agent']), requestId, clientIp],
+      );
 
       const context = {
         userId: payload?.sub ?? '',
