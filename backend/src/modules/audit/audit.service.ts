@@ -10,7 +10,10 @@ export const AUDIT_EXPORT_LIMIT = 50_000;
 const CSV_HEADER = ['Data/hora', 'Pessoa', 'Papel', 'Origem', 'Ação', 'Entidade', 'Registro', 'Alterações', 'Justificativa', 'IP'];
 
 function csvCell(value: unknown): string {
-  const text = value === null || value === undefined ? '' : String(value);
+  const raw = value === null || value === undefined ? '' : String(value);
+  // Nomes de produto/arquivo/pessoa são texto livre: começando com = + - @ (ou tab/CR) o Excel os leria como
+  // fórmula. O apóstrofo faz o Excel tratar a célula como texto.
+  const text = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
   return /[;"\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 

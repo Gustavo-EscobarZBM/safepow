@@ -90,7 +90,7 @@ describe('AuditController (HTTP)', () => {
     expect(body.items.every((i: { action: string }) => i.action === 'create')).toBe(true);
   });
 
-  it.each(['pageSize=500', 'page=0', 'entityType=nave', 'action=explodir', 'from=ontem', 'entityId=nao-uuid', 'foo=bar'])(
+  it.each(['pageSize=500', 'page=0', 'entityType=nave', 'action=explodir', 'from=ontem', 'entityId=nao-uuid', 'foo=bar', 'from=20260924', 'to=2026-W01'])(
     'GET /audit?%s ⇒ 400',
     async (query) => {
       const { status } = await get(baseUrl, `/api/audit?${query}`, managerToken);
@@ -115,5 +115,15 @@ describe('AuditController (HTTP)', () => {
     expect(lines).toHaveLength(3);
     expect(lines[1]).toContain('"Arroz; ""tipo 1"""');
     expect(lines[1]).toContain('unitPrice: 10 → 12');
+  });
+
+  it('export CSV neutraliza fórmulas (=, +, -, @) — o arquivo abre direto no Excel', async () => {
+    const formulaId = await seedProduct({ companyId, barcode: '2', name: '=HYPERLINK("http://x";"clique")', unitPrice: 1 });
+
+    const { body } = await get(baseUrl, `/api/audit/export?entityId=${formulaId}`, managerToken);
+
+    const [, row] = (body as string).slice(1).trim().split('\r\n');
+    expect(row).toContain(`"'=HYPERLINK(""http://x"";""clique"")"`);
+    expect(row).not.toMatch(/;=HYPERLINK|;"=HYPERLINK/);
   });
 });
