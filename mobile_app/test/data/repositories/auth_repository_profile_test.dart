@@ -1,9 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:inventory_loss_app/core/network/api_client.dart';
 import 'package:inventory_loss_app/core/storage/app_database.dart';
 import 'package:inventory_loss_app/data/repositories/auth_repository.dart';
+
+import '../../support/isolated_database.dart';
 
 class _FakeApiClient extends ApiClient {
   Map<String, dynamic>? nextGetResponse;
@@ -25,8 +26,7 @@ class _FakeApiClient extends ApiClient {
 }
 
 void main() {
-  sqfliteFfiInit();
-  databaseFactory = databaseFactoryFfi;
+  setUpAll(useIsolatedTestDatabase);
 
   setUp(() async {
     await AppDatabase.instance.clearAll();

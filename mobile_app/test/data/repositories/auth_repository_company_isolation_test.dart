@@ -1,11 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:inventory_loss_app/core/network/api_client.dart';
 import 'package:inventory_loss_app/core/storage/app_database.dart';
 import 'package:inventory_loss_app/core/storage/secure_session_storage.dart';
 import 'package:inventory_loss_app/data/models/auth_session.dart';
 import 'package:inventory_loss_app/data/repositories/auth_repository.dart';
+
+import '../../support/isolated_database.dart';
 
 /// Guarda a sessão em memória em vez de Keystore/Keychain (indisponível em
 /// `flutter test`, que roda em Dart VM puro, sem plugins de plataforma).
@@ -47,8 +48,7 @@ Map<String, dynamic> _loginResponse({required String userId, required String com
     };
 
 void main() {
-  sqfliteFfiInit();
-  databaseFactory = databaseFactoryFfi;
+  setUpAll(useIsolatedTestDatabase);
 
   const companyA = '11111111-1111-1111-1111-111111111111';
   const companyB = '22222222-2222-2222-2222-222222222222';
