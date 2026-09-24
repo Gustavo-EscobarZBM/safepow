@@ -10,6 +10,28 @@ class AppDatabase {
   AppDatabase._internal();
   static final AppDatabase instance = AppDatabase._internal();
 
+  /// Versão do esquema local. Toda mudança entra em `_migrations` — SEMPRE aditiva: nunca apagar a tabela
+  /// `losses` (fila offline de perdas ainda não enviadas — RK5). Sem onDowngrade destrutivo.
+  static const int currentVersion = 2;
+
+  /// Metadado com o cursor do sync de produtos (o X-Sync-Cursor do servidor; em servidor antigo, o relógio
+  /// do aparelho).
+  static const String productsSyncCursorKey = 'products_last_sync_at';
+
+  /// Migração de (versão - 1) para `versão`.
+  static final Map<int, Future<void> Function(Database db)> _migrations = {
+    // v2 (SP1, R6): apaga o cursor do catálogo para forçar UM re-sync total na primeira abertura depois de
+    // atualizar — remove os "fantasmas" (produtos arquivados antes da correção que ficaram no aparelho, F3).
+    2: (db) => db.delete('sync_metadata', where: 'key = ?', whereArgs: [productsSyncCursorKey]),
+  };
+
+  static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    for (var version = oldVersion + 1; version <= newVersion; version++) {
+      final migration = _migrations[version];
+      if (migration != null) await migration(db);
+    }
+  }
+
   Database? _db;
   String? _pathOverride;
 
@@ -37,7 +59,7 @@ class AppDatabase {
   /// Abre (criando ou migrando) o banco do app num caminho qualquer — ponto único de abertura, usado pelo
   /// app e pelos testes de migração.
   static Future<Database> openAt(String path) {
-    return openDatabase(path, version: 1, onCreate: _onCreate);
+    return openDatabase(path, version: currentVersion, onCreate: _onCreate, onUpgrade: _onUpgrade);
   }
 
   static Future<void> _onCreate(Database db, int version) async {
