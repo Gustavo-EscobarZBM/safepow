@@ -83,6 +83,7 @@ export class TenantContextMiddleware implements NestMiddleware {
         role: payload?.role ?? UserRole.EMPLOYEE,
         companyId: payload?.companyId ?? null,
         manager: queryRunner.manager,
+        audit: { source: auditSourceFromUserAgent(req.headers['user-agent']), requestId, ip: clientIp },
       };
 
       this.finishTransactionBeforeResponse(res, queryRunner);

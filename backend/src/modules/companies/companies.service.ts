@@ -2,7 +2,8 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { DataSource, Repository } from 'typeorm';
-import { getTenantContext, getTenantManager } from '../../common/tenant/tenant-storage';
+import { getTenantContext, getTenantManager, tenantStorage } from '../../common/tenant/tenant-storage';
+import { applyRequestAuditContext } from '../audit/audit-events';
 import { LossLocation } from '../loss-locations/loss-location.entity';
 import { LossReason } from '../loss-reasons/loss-reason.entity';
 import { User, UserRole } from '../users/user.entity';
@@ -58,6 +59,8 @@ export class CompaniesService {
     const passwordHash = await bcrypt.hash(dto.managerPassword, SALT_ROUNDS);
 
     return this.dataSource.transaction(async (manager) => {
+      // Transação própria: sem isto a auditoria da empresa criada sairia sem autor ("system").
+      await applyRequestAuditContext(manager);
       const company = manager.create(Company, {
         name: dto.name,
         cnpj: dto.cnpj ?? null,
@@ -160,7 +163,7 @@ export class CompaniesService {
     if (dto.cnpj !== undefined) company.cnpj = dto.cnpj || null;
     if (dto.planTier !== undefined) company.planTier = dto.planTier;
     if (dto.currentPeriodEnd !== undefined) company.currentPeriodEnd = new Date(dto.currentPeriodEnd);
-    return this.companiesRepository.save(company);
+    return this.saveMasterAction(company);
   }
 
   /**
@@ -171,7 +174,7 @@ export class CompaniesService {
   async updateStatus(id: string, status: CompanyStatus): Promise<Company> {
     const company = await this.findOneOrFail(id);
     company.status = status;
-    return this.companiesRepository.save(company);
+    return this.saveMasterAction(company);
   }
 
   /**
@@ -182,7 +185,7 @@ export class CompaniesService {
     const company = await this.findOneOrFail(id);
     company.currentPeriodEnd = this.addDays(new Date(), 30);
     company.status = CompanyStatus.ACTIVE;
-    return this.companiesRepository.save(company);
+    return this.saveMasterAction(company);
   }
 
   /**
@@ -194,7 +197,7 @@ export class CompaniesService {
     const company = await this.findOneOrFail(id);
     company.lastManualUnlockAt = new Date();
     company.status = computeEffectiveStatus(company);
-    return this.companiesRepository.save(company);
+    return this.saveMasterAction(company);
   }
 
   /**
@@ -210,6 +213,17 @@ export class CompaniesService {
       await manager.query(`SELECT set_config('app.current_company_id', $1, true)`, [id]);
       await manager.delete(Company, id);
     });
+  }
+
+  /**
+   * Ação do Master: grava na transação da própria requisição (que já carrega ator, origem, requestId e IP para
+   * a auditoria). O repositório injetado usaria outra conexão do pool e a mudança sairia sem autor. Fora de
+   * requisição (testes unitários), cai no repositório. `companies` não tem RLS, então o Master (sem tenant)
+   * grava normalmente. A auto-cura de status em syncStatus continua no repositório: é mudança do sistema.
+   */
+  private saveMasterAction(company: Company): Promise<Company> {
+    const context = tenantStorage.getStore();
+    return context ? context.manager.save(Company, company) : this.companiesRepository.save(company);
   }
 
   private async syncStatus(company: Company): Promise<Company> {

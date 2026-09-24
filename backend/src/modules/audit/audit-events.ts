@@ -1,3 +1,5 @@
+import { tenantStorage } from '../../common/tenant/tenant-storage';
+
 /** Origem de um registro de auditoria (coluna audit_log.source). */
 export type AuditSource = 'web' | 'mobile' | 'import' | 'system';
 
@@ -37,4 +39,21 @@ export async function recordAuditEvent(
     JSON.stringify(event.changes ?? []),
     event.summary ? JSON.stringify(event.summary) : null,
   ]);
+}
+
+/**
+ * Serviços que gravam numa transação própria (outra conexão do pool, ex.: o Painel Master criando empresa)
+ * não herdam as variáveis de sessão da transação do middleware — sem isto a auditoria sairia sem autor, como
+ * "system". Copia ator, origem, requestId e IP da requisição atual; fora de requisição, não faz nada.
+ */
+export async function applyRequestAuditContext(manager: {
+  query(sql: string, params?: unknown[]): Promise<unknown>;
+}): Promise<void> {
+  const context = tenantStorage.getStore();
+  if (!context) return;
+  await manager.query(
+    `SELECT set_config('app.current_user_id', $1, true), set_config('app.audit_source', $2, true),
+            set_config('app.request_id', $3, true), set_config('app.client_ip', $4, true)`,
+    [context.userId, context.audit?.source ?? '', context.audit?.requestId ?? '', context.audit?.ip ?? ''],
+  );
 }

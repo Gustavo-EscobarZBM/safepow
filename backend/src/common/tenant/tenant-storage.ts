@@ -14,6 +14,9 @@ export interface TenantContext {
   role: UserRole;
   companyId: string | null; // null apenas para MASTER_ADMIN
   manager: EntityManager; // manager vinculado à transação/conexão desta requisição
+  // Contexto da auditoria (SP2) — o mesmo gravado nas variáveis de sessão da transação acima; guardado aqui
+  // para ser copiado para transações próprias (ver applyRequestAuditContext).
+  audit?: { source: string; requestId: string; ip: string };
 }
 
 export const tenantStorage = new AsyncLocalStorage<TenantContext>();
