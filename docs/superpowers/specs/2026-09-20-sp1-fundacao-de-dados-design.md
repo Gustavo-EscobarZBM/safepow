@@ -466,6 +466,8 @@ validado — aceita o formato do Dart; `includeArchived`, `limit` 1–10000, `af
 banco) e `X-Next-After` (só página cheia); migration `1700000014000-ProductsSyncIndex` (o spec citava
 12000, número já usado). Paginação com o mesmo updatedAt coberta por teste de regressão (R5).
 
+**Resultado da 1.4.2 (2026-09-24):** `ApiClient.getWithHeaders` (cabeçalhos em minúsculas); `ProductRepository.refreshFromServer` baixa todas as páginas (`limit=5000`, segue `X-Next-After`, para se o servidor repetir o cursor) e aplica catálogo + cursor num único batch dentro de uma transação; incremental com `since = cursor − 2 min` e tombstones (DELETE antes dos upserts); cursor = `X-Sync-Cursor` da 1ª página (servidor antigo: relógio do aparelho). `AppDatabase` v2 com `openAt` e `_migrations` aditivas (v2 apaga o cursor ⇒ re-sync total). A suíte do app deixou de ser intermitente (banco em memória por arquivo de teste). **Verificado no emulador:** APK novo instalado por cima do antigo migrou o banco v1→v2, apagou o cursor e manteve intactas as 2 perdas da fila. **Pendente:** o sync pós-login no emulador (arquivar no painel ⇒ some do celular) — a sessão do app tinha expirado e o login só o usuário faz; o comportamento está coberto pelos testes do repositório. Menores abertos: deduplicar por id produtos repetidos entre páginas; teste do incremental com várias páginas; timeout de 15 s por página em sinal fraco. **Etapa 1.4 e SP1 concluídos** (com a verificação pós-login pendente).
+
 **Pronto quando:** arquivar no painel remove o produto do celular no próximo sync (inclusive
 instalações antigas, via re-sync total do v2); relógio do aparelho errado não perde mudanças; nenhuma
 perda pendente é apagada por atualização do app.
