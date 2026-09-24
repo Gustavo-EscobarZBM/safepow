@@ -52,6 +52,14 @@ class NetworkUnavailableException implements Exception {}
 /// mensagem de "sem conexão" que mascara o problema real.
 class SessionExpiredException implements Exception {}
 
+/// Resposta com os cabeçalhos — o sync de produtos lê X-Sync-Cursor / X-Next-After (SP1, 6.1/6.2).
+class ApiResponse {
+  final dynamic body;
+  final Map<String, String> headers;
+
+  const ApiResponse(this.body, this.headers);
+}
+
 class ApiClient {
   final SecureSessionStorage _sessionStorage;
   final http.Client _httpClient;
@@ -75,6 +83,11 @@ class ApiClient {
 
   Future<dynamic> get(String path) async {
     return _send(() async => _httpClient.get(_uri(path), headers: await _headers()));
+  }
+
+  /// Como [get], mas devolve também os cabeçalhos da resposta.
+  Future<ApiResponse> getWithHeaders(String path) async {
+    return _sendRaw(() async => _httpClient.get(_uri(path), headers: await _headers()));
   }
 
   Future<dynamic> post(String path, Map<String, dynamic> body, {bool withAuth = true}) async {
@@ -145,6 +158,10 @@ class ApiClient {
   }
 
   Future<dynamic> _send(Future<http.Response> Function() request, {bool withAuth = true}) async {
+    return (await _sendRaw(request, withAuth: withAuth)).body;
+  }
+
+  Future<ApiResponse> _sendRaw(Future<http.Response> Function() request, {bool withAuth = true}) async {
     http.Response response;
     try {
       response = await request().timeout(const Duration(seconds: 15));
@@ -169,7 +186,11 @@ class ApiClient {
     }
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
-      return decoded;
+      // Nomes de cabeçalho em minúsculas sempre: o cliente de IO do package:http já entrega assim, mas outros
+      // clientes (ex.: MockClient, web) preservam a grafia do servidor.
+      return ApiResponse(decoded, {
+        for (final header in response.headers.entries) header.key.toLowerCase(): header.value,
+      });
     }
 
     final message = (decoded is Map && decoded['message'] != null)
