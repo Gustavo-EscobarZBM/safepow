@@ -276,7 +276,15 @@ export default function ProductsPage() {
           <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-4">
             <div className="space-y-1.5">
               <Label>Código de barras</Label>
-              <Input required value={barcode} onChange={(e) => setBarcode(e.target.value)} />
+              <Input
+                required
+                value={barcode}
+                onChange={(e) => {
+                  setBarcode(e.target.value);
+                  // A oferta de reativar é daquele código: mudou o código, ela deixa de valer.
+                  setArchivedConflictId(null);
+                }}
+              />
             </div>
             <div className="space-y-1.5">
               <Label>Nome</Label>

@@ -231,6 +231,17 @@ describe('ProductsPage — cadastro de código de produto arquivado (etapa 1.3)'
     );
   });
 
+  it('mudar o código de barras depois do conflito retira a oferta de reativar (ela era daquele código)', async () => {
+    (api.post as Mock).mockRejectedValue(archivedConflict);
+    await fillAndSubmit();
+    await screen.findByRole('button', { name: 'Reativar e atualizar os dados' });
+
+    await userEvent.type(screen.getByDisplayValue('999'), '8');
+
+    expect(screen.queryByRole('button', { name: 'Reativar e atualizar os dados' })).not.toBeInTheDocument();
+    expect(api.patch).not.toHaveBeenCalled();
+  });
+
   it('conflito com produto ATIVO: só a mensagem, sem oferecer reativar', async () => {
     (api.post as Mock).mockRejectedValue(
       new ApiError(409, 'Já existe um produto com este código de barras.', {
