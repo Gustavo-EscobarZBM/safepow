@@ -51,14 +51,14 @@ async function request(
   path: string,
   token: string,
   body?: unknown,
-): Promise<{ status: number; body: any }> {
+): Promise<{ status: number; body: any; headers: Headers }> {
   const response = await fetch(`${baseUrl}${path}`, {
     method,
     headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
   const text = await response.text();
-  return { status: response.status, body: text ? JSON.parse(text) : null };
+  return { status: response.status, body: text ? JSON.parse(text) : null, headers: response.headers };
 }
 
 async function seedUser(companyId: string, role: 'manager' | 'employee'): Promise<string> {
@@ -149,4 +149,46 @@ describe('ProductsController — contratos HTTP (etapa 1.3)', () => {
     const { status } = await request(baseUrl, 'GET', '/api/products/search', employeeToken);
     expect(status).toBe(403);
   });
+
+  it('GET /products (sync) sem parâmetros: array de ativos por nome + X-Sync-Cursor, sem X-Next-After', async () => {
+    await seedProduct({ companyId, barcode: '901', name: 'Banana' });
+    await seedProduct({ companyId, barcode: '900', name: 'Abacate' });
+
+    const { status, body, headers } = await request(baseUrl, 'GET', '/api/products', employeeToken);
+
+    expect(status).toBe(200);
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.map((p: { name: string }) => p.name)).toEqual(['Abacate', 'Banana']);
+    expect(headers.get('x-sync-cursor')).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/);
+    expect(headers.get('x-next-after')).toBeNull();
+  });
+
+  it('GET /products?since=<formato do app instalado> continua aceito (200)', async () => {
+    const { status } = await request(baseUrl, 'GET', '/api/products?since=2026-09-23T10:00:00.123456Z', employeeToken);
+    expect(status).toBe(200);
+  });
+
+  it('GET /products com página cheia manda X-Next-After', async () => {
+    await seedProduct({ companyId, barcode: '910', name: 'A' });
+    await seedProduct({ companyId, barcode: '911', name: 'B' });
+
+    const { status, body, headers } = await request(
+      baseUrl,
+      'GET',
+      '/api/products?includeArchived=true&limit=1',
+      employeeToken,
+    );
+
+    expect(status).toBe(200);
+    expect(body).toHaveLength(1);
+    expect(headers.get('x-next-after')).toMatch(/\|[0-9a-f-]{36}$/);
+  });
+
+  it.each(['since=ontem', 'limit=0', 'limit=10001', 'includeArchived=sim', 'after=lixo', 'foo=bar'])(
+    'GET /products?%s ⇒ 400 (não 500)',
+    async (query) => {
+      const { status } = await request(baseUrl, 'GET', `/api/products?${query}`, employeeToken);
+      expect(status).toBe(400);
+    },
+  );
 });

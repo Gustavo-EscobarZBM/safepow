@@ -10,8 +10,10 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles, RolesGuard } from '../../common/guards/roles.guard';
 import { SubscriptionGuard } from '../../common/guards/subscription.guard';
@@ -19,6 +21,7 @@ import { UserRole } from '../users/user.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { SearchProductsDto } from './dto/search-products.dto';
+import { SyncProductsQueryDto } from './dto/sync-products.dto';
 import { ProductsService } from './products.service';
 
 @Controller('products')
@@ -34,13 +37,18 @@ export class ProductsController {
     return this.productsService.create(dto);
   }
 
-  // Consultado tanto pelo painel (listagem) quanto pelo app (sincronização de
-  // catálogo). Aceita ?since=ISO_DATE para sincronização incremental (Seção 4.3).
+  // Consultado tanto pelo painel quanto pelo app (sincronização de catálogo — Seção 4.3). A resposta
+  // continua sendo um array; os parâmetros e cabeçalhos novos (SP1, 6.1) são opcionais — o app antigo
+  // manda só ?since= e recebe exatamente o que recebia.
   @Get()
   @Roles(UserRole.MANAGER, UserRole.EMPLOYEE)
-  findAll(@Query('since') since?: string) {
-    return this.productsService.findAll(since);
+  async findAll(@Query() query: SyncProductsQueryDto, @Res({ passthrough: true }) res: Response) {
+    const page = await this.productsService.findForSync(query);
+    res.setHeader('X-Sync-Cursor', page.syncCursor);
+    if (page.nextAfter) res.setHeader('X-Next-After', page.nextAfter);
+    return page.items;
   }
+
 
   // Busca paginada do painel (etapa 1.3). Rota estática declarada antes das paramétricas.
   @Get('search')

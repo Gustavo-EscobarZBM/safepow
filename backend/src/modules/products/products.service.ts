@@ -4,10 +4,12 @@ import { getTenantContext, getTenantManager } from '../../common/tenant/tenant-s
 import { User } from '../users/user.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { SearchProductsDto } from './dto/search-products.dto';
+import { SyncProductsQueryDto } from './dto/sync-products.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { barcodeConflict, isBarcodeUniqueViolation } from './product-errors';
 import { Product } from './product.entity';
 import { DEFAULT_PAGE_SIZE, escapeLikePattern, ProductSearchResult } from './products-search';
+import { formatSyncCursor, parseSyncCursor, SYNC_TIMESTAMP_SQL } from './products-sync';
 import { PriceChangeSource, ProductPriceHistory } from './product-price-history.entity';
 
 export interface PriceHistoryEntry {
@@ -21,6 +23,14 @@ export interface PriceHistoryEntry {
 }
 
 const PRICE_HISTORY_LIMIT = 100;
+
+export interface SyncPage {
+  items: Product[];
+  /** now() do banco no início da requisição — o app guarda isto como "sincronizado até" (não o relógio dele). */
+  syncCursor: string;
+  /** Cursor para a próxima página; só quando esta veio cheia (há, ou pode haver, mais). */
+  nextAfter: string | null;
+}
 
 /**
  * Nenhum método aqui filtra manualmente por companyId — a Row Level Security
@@ -59,20 +69,53 @@ export class ProductsService {
     }
   }
 
-  findAll(sinceIso?: string): Promise<Product[]> {
+  /**
+   * Catálogo para o sync do app (Seção 4.3 do documento; SP1, 6.1). Sem os parâmetros novos, a consulta é
+   * exatamente a de antes (app instalado). Com eles: tombstones opcionais (R1) e páginas por cursor com
+   * precisão de microssegundos e desempate por id (R5) — produtos com o mesmo updatedAt nunca repetem nem
+   * somem entre páginas.
+   */
+  async findForSync(query: SyncProductsQueryDto): Promise<SyncPage> {
     const manager = getTenantManager();
-    if (sinceIso) {
-      // Sincronização incremental (Seção 4.3 do documento): o app pergunta
-      // "o que mudou desde X" em vez de baixar o catálogo inteiro toda vez.
-      return manager
-        .createQueryBuilder(Product, 'product')
-        .where('product.isActive = true')
-        .andWhere('product.updatedAt > :since', { since: new Date(sinceIso) })
-        .orderBy('product.updatedAt', 'ASC')
-        .getMany();
+    const [{ cursor: syncCursor }] = await manager.query(
+      `SELECT ${SYNC_TIMESTAMP_SQL('now()')} AS cursor`,
+    );
+
+    const legacy = query.includeArchived === undefined && query.limit === undefined && query.after === undefined;
+    if (legacy) {
+      const items = query.since
+        ? await manager
+            .createQueryBuilder(Product, 'product')
+            .where('product.isActive = true')
+            .andWhere('product.updatedAt > :since', { since: new Date(query.since) })
+            .orderBy('product.updatedAt', 'ASC')
+            .getMany()
+        : await manager.find(Product, { where: { isActive: true }, order: { name: 'ASC' } });
+      return { items, syncCursor, nextAfter: null };
     }
-    return manager.find(Product, { where: { isActive: true }, order: { name: 'ASC' } });
+
+    const qb = manager
+      .createQueryBuilder(Product, 'product')
+      .addSelect(SYNC_TIMESTAMP_SQL('product.updatedAt'), 'sync_updated_at');
+    if (!query.includeArchived) qb.andWhere('product.isActive = true');
+    if (query.since) qb.andWhere('product.updatedAt > :since', { since: new Date(query.since) });
+    if (query.after) {
+      const { afterAt, afterId } = parseSyncCursor(query.after);
+      qb.andWhere('(product.updatedAt, product.id) > (CAST(:afterAt AS timestamptz), CAST(:afterId AS uuid))', {
+        afterAt,
+        afterId,
+      });
+    }
+    qb.orderBy('product.updatedAt', 'ASC').addOrderBy('product.id', 'ASC');
+    if (query.limit) qb.limit(query.limit);
+
+    const { entities, raw } = await qb.getRawAndEntities<{ sync_updated_at: string }>();
+    const full = query.limit !== undefined && entities.length === query.limit;
+    const last = entities.length - 1;
+    const nextAfter = full ? formatSyncCursor(raw[last].sync_updated_at, entities[last].id) : null;
+    return { items: entities, syncCursor, nextAfter };
   }
+
 
   /**
    * Busca paginada no servidor para o painel (F10): nome por conteúdo, código de barras e SKU por prefixo,
