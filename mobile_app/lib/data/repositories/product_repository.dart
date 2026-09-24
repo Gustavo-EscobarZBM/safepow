@@ -55,23 +55,28 @@ class ProductRepository {
 
     final db = await AppDatabase.instance.database;
     await db.transaction((txn) async {
+      // Um único batch dentro da transação: no Android cada `await txn.insert` é uma ida e volta pelo canal
+      // de plataforma — com um catálogo grande (toda primeira carga, inclusive a forçada pela migração v2)
+      // isso travaria o banco por dezenas de segundos.
+      final batch = txn.batch();
       if (isFirstLoad) {
-        await txn.delete('products');
+        batch.delete('products');
       } else {
         // DELETE antes dos upserts: um produto novo pode reutilizar o código de barras de um arquivado
         // (índice único local em barcode).
         for (final product in received.where((p) => !p.isActive)) {
-          await txn.delete('products', where: 'id = ?', whereArgs: [product.id]);
+          batch.delete('products', where: 'id = ?', whereArgs: [product.id]);
         }
       }
       for (final product in received.where((p) => p.isActive)) {
-        await txn.insert('products', product.toLocalMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+        batch.insert('products', product.toLocalMap(), conflictAlgorithm: ConflictAlgorithm.replace);
       }
-      await txn.insert(
+      batch.insert(
         'sync_metadata',
         {'key': AppDatabase.productsSyncCursorKey, 'value': serverCursor ?? deviceStartedAt.toIso8601String()},
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
+      await batch.commit(noResult: true);
     });
   }
 
