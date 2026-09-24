@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable, UnauthorizedException } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
@@ -6,6 +6,7 @@ import { DataSource, Repository } from 'typeorm';
 import { Company, CompanyStatus } from '../companies/company.entity';
 import { computeEffectiveStatus } from '../companies/company-status.util';
 import { UserRole } from '../users/user.entity';
+import { auditSourceFromUserAgent, recordAuditEvent } from '../audit/audit-events';
 
 interface AuthLookupRow {
   id: string;
@@ -16,15 +17,23 @@ interface AuthLookupRow {
   name: string;
 }
 
+export interface LoginClientInfo {
+  ip?: string;
+  userAgent?: string;
+  requestId?: string;
+}
+
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly jwtService: JwtService,
     @InjectRepository(Company) private readonly companiesRepository: Repository<Company>,
   ) {}
 
-  async login(email: string, password: string) {
+  async login(email: string, password: string, client: LoginClientInfo = {}) {
     // Chama a função SQL SECURITY DEFINER (ver migration InitialSchema) em vez de
     // usar um repositório comum: a RLS bloquearia esta busca por e-mail, já que
     // o tenant do usuário ainda não é conhecido neste momento do fluxo.
@@ -34,12 +43,12 @@ export class AuthService {
     );
     const user = rows[0];
 
-    if (!user || !user.isActive) {
+    if (!user) {
       throw new UnauthorizedException('E-mail ou senha inválidos.');
     }
-
-    const passwordMatches = await bcrypt.compare(password, user.passwordHash);
+    const passwordMatches = user.isActive && (await bcrypt.compare(password, user.passwordHash));
     if (!passwordMatches) {
+      await this.auditLogin(user, 'login_failed', client);
       throw new UnauthorizedException('E-mail ou senha inválidos.');
     }
 
@@ -81,6 +90,8 @@ export class AuthService {
       isLossVerifier = company.lossVerifierId === user.id;
     }
 
+    await this.auditLogin(user, 'login', client);
+
     const payload = { sub: user.id, role: user.role, companyId: user.companyId };
     const accessToken = await this.jwtService.signAsync(payload);
 
@@ -97,5 +108,33 @@ export class AuthService {
       lossVerificationEnabled,
       isLossVerifier,
     };
+  }
+
+  /**
+   * Login roda sem contexto de tenant (e a transação do middleware é desfeita em 401) — por isso grava numa
+   * transação própria, com o contexto do usuário. Falha ao auditar NÃO derruba o login: registra no log do
+   * servidor e segue.
+   */
+  private async auditLogin(user: AuthLookupRow, action: 'login' | 'login_failed', client: LoginClientInfo) {
+    if (!user.companyId) return;
+    try {
+      await this.dataSource.transaction(async (manager) => {
+        await manager.query(
+          `SELECT set_config('app.current_company_id', $1, true), set_config('app.current_user_id', $2, true),
+                  set_config('app.audit_source', $3, true), set_config('app.request_id', $4, true),
+                  set_config('app.client_ip', $5, true)`,
+          [user.companyId, user.id, auditSourceFromUserAgent(client.userAgent), client.requestId ?? '', client.ip ?? ''],
+        );
+        await recordAuditEvent(manager, {
+          companyId: user.companyId!,
+          entityType: 'session',
+          entityId: user.id,
+          entityLabel: user.name,
+          action,
+        });
+      });
+    } catch (error) {
+      this.logger.warn(`Não foi possível auditar o ${action} de ${user.id}: ${(error as Error).message}`);
+    }
   }
 }

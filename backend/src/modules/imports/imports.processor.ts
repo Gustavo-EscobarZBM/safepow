@@ -4,6 +4,7 @@ import { Job } from 'bullmq';
 import * as ExcelJS from 'exceljs';
 import { DataSource } from 'typeorm';
 import { Product } from '../products/product.entity';
+import { recordAuditEvent } from '../audit/audit-events';
 import { StorageService } from '../uploads/storage.service';
 import { PRODUCTS_IMPORT_QUEUE, ProductImportJobData } from './imports.service';
 import { ImportJob, ImportJobStatus, ImportRowError } from './import-job.entity';
@@ -38,6 +39,11 @@ export class ImportsProcessor extends WorkerHost {
       await manager.query(`SELECT set_config('app.current_company_id', $1, true)`, [companyId]);
       // Origem das mudanças de preço desta transação — o trigger do histórico registra 'import'.
       await manager.query(`SELECT set_config('app.change_source', 'import', true)`);
+      // Auditoria em modo resumo (SP2): em vez de uma linha por produto, um evento "import" no fim. As
+      // mudanças de preço continuam uma a uma no product_price_history (source import).
+      await manager.query(
+        `SELECT set_config('app.audit_mode', 'summary', true), set_config('app.audit_source', 'import', true)`,
+      );
 
       const importJob = await manager.findOne(ImportJob, { where: { id: importJobId } });
       if (!importJob) {
@@ -50,6 +56,9 @@ export class ImportsProcessor extends WorkerHost {
 
       const errorReport: ImportRowError[] = [];
       let successCount = 0;
+      let created = 0;
+      let updated = 0;
+      let reactivated = 0;
       let totalRows = 0;
 
       try {
@@ -115,6 +124,8 @@ export class ImportsProcessor extends WorkerHost {
               existing.unitPrice = unitPrice;
               // Produto arquivado que volta na planilha do ERP volta ao catálogo (F2/F9c). O relatório
               // de "reativados" da importação fica para o SP3.
+              if (existing.isActive) updated++;
+              else reactivated++;
               existing.isActive = true;
               await manager.save(existing);
             } else {
@@ -127,6 +138,7 @@ export class ImportsProcessor extends WorkerHost {
                 sourceColumnMapping: mapping as unknown as Record<string, string>,
               });
               await manager.save(product);
+              created++;
             }
 
             successCount++;
@@ -147,6 +159,14 @@ export class ImportsProcessor extends WorkerHost {
         importJob.errorReport = errorReport.length > 0 ? errorReport : null;
         importJob.completedAt = new Date();
         await manager.save(importJob);
+        await recordAuditEvent(manager, {
+          companyId,
+          entityType: 'import_job',
+          entityId: importJobId,
+          entityLabel: importJob.fileName,
+          action: 'import',
+          summary: { status: 'completed', totalRows, created, updated, reactivated, errors: totalRows - successCount },
+        });
       } catch (fatalError) {
         importJob.status = ImportJobStatus.FAILED;
         importJob.errorReport = [
@@ -157,6 +177,14 @@ export class ImportsProcessor extends WorkerHost {
         ];
         importJob.completedAt = new Date();
         await manager.save(importJob);
+        await recordAuditEvent(manager, {
+          companyId,
+          entityType: 'import_job',
+          entityId: importJobId,
+          entityLabel: importJob.fileName,
+          action: 'import',
+          summary: { status: 'failed', totalRows, created, updated, reactivated, errors: totalRows - successCount },
+        });
         this.logger.error(`Falha ao processar importação ${importJobId}`, fatalError as Error);
       }
     });

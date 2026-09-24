@@ -95,4 +95,48 @@ describe('ImportsProcessor — histórico de preço registra a origem "import"',
     );
     expect(history[0]).toMatchObject({ unitPrice: '12.00', source: 'import' });
   });
+
+  it('importação grava UM evento "import" com o resumo, e nenhum evento por produto', async () => {
+    const companyId = await seedCompany('Empresa Resumo');
+    const existingId = await seedProduct({ companyId, barcode: '8201', unitPrice: 10 });
+    const archivedId = await seedProduct({ companyId, barcode: '8202', unitPrice: 10 });
+    await adminQuery(`UPDATE products SET "isActive" = false WHERE id = $1`, [archivedId]);
+    const auditBefore = (await adminQuery(`SELECT count(*)::int AS n FROM audit_log`))[0].n;
+    const importJobId = (
+      await adminQuery(
+        `INSERT INTO import_jobs ("companyId", "fileName", "storageKey") VALUES ($1, 'p.xlsx', 'k') RETURNING id`,
+        [companyId],
+      )
+    )[0].id;
+    const buffer = await spreadsheet([
+      ['8201', 'Existente', 11],
+      ['8202', 'Reativado', 10],
+      ['8203', 'Novo', 5],
+    ]);
+    const storage = { downloadBuffer: async () => buffer } as unknown as StorageService;
+
+    await new ImportsProcessor(await appDataSource(), storage).process({
+      data: {
+        importJobId,
+        companyId,
+        storageKey: 'k',
+        mapping: { barcodeColumn: 'Codigo', nameColumn: 'Nome', unitPriceColumn: 'Preco' },
+      },
+    } as Job<ProductImportJobData>);
+
+    const events = await adminQuery(
+      `SELECT action, "entityType", "entityId", source, summary FROM audit_log ORDER BY seq OFFSET $1`,
+      [auditBefore],
+    );
+    expect(events).toEqual([
+      {
+        action: 'import',
+        entityType: 'import_job',
+        entityId: importJobId,
+        source: 'import',
+        summary: { status: 'completed', totalRows: 3, created: 1, updated: 1, reactivated: 1, errors: 0 },
+      },
+    ]);
+    expect(existingId).toBeDefined();
+  });
 });
