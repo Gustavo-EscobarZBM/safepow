@@ -192,3 +192,36 @@ export interface TenantUser {
   isActive: boolean;
   createdAt: string;
 }
+
+/** Uma alteração de campo registrada pela auditoria (SP2). */
+export interface AuditChange {
+  field: string;
+  from: unknown;
+  to: unknown;
+}
+
+/** Linha da trilha de auditoria (backend: GET /audit). */
+export interface AuditLogEntry {
+  id: string;
+  createdAt: string;
+  actorUserId: string | null;
+  actorName: string | null;
+  actorRole: string | null;
+  entityType: string;
+  entityId: string | null;
+  entityLabel: string | null;
+  action: string;
+  changes: AuditChange[];
+  summary: Record<string, unknown> | null;
+  source: string;
+  reason: string | null;
+  requestId: string | null;
+  ip: string | null;
+}
+
+export interface AuditPage {
+  items: AuditLogEntry[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
