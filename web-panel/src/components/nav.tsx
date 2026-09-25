@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   ChevronDown,
@@ -13,6 +14,7 @@ import {
   ShieldCheck,
   UserCog,
   History,
+  ClipboardCheck,
   type LucideIcon,
 } from 'lucide-react';
 import type { SessionUser } from '@/lib/types';
@@ -21,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { cn } from '@/lib/utils';
+import { api } from '@/lib/api-client';
 
 type NavLeaf = { href: string; label: string; icon: LucideIcon };
 type NavGroup = { label: string; icon: LucideIcon; children: { href: string; label: string }[] };
@@ -45,6 +48,7 @@ const MANAGER_LINKS: NavItem[] = [
   { href: '/conferencias', label: 'Conferências', icon: ShieldCheck },
   { href: '/users', label: 'Usuários', icon: Users },
   { href: '/auditoria', label: 'Auditoria', icon: History },
+  { href: '/aprovacoes', label: 'Aprovações', icon: ClipboardCheck },
 ];
 
 // Funcionário só registra perdas — sem acesso a dashboard, cadastros ou usuários.
@@ -57,12 +61,38 @@ const MASTER_LINKS: NavItem[] = [
   { href: '/master/companies', label: 'Empresas (Painel Master)', icon: Building2 },
 ];
 
+/**
+ * Pedidos de aprovação pendentes (SP2, 2.2) para o selo do menu: busca ao montar, a cada troca de página e
+ * quando a página Aprovações avisa que decidiu algo (evento approvals:changed). Falha ⇒ sem selo.
+ */
+function usePendingApprovalsCount(enabled: boolean, pathname: string): number {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!enabled) return;
+    let active = true;
+    const refresh = () => {
+      api
+        .get<{ count: number }>('change-requests/pending-count')
+        .then((result) => active && setCount(result?.count ?? 0))
+        .catch(() => active && setCount(0));
+    };
+    refresh();
+    window.addEventListener('approvals:changed', refresh);
+    return () => {
+      active = false;
+      window.removeEventListener('approvals:changed', refresh);
+    };
+  }, [enabled, pathname]);
+  return count;
+}
+
 export function Nav({ user }: { user: SessionUser }) {
   const pathname = usePathname();
   const router = useRouter();
   const employeeLinks = user.isLossVerifier ? [...EMPLOYEE_LINKS, VERIFIER_LINK] : EMPLOYEE_LINKS;
   const links =
     user.role === 'master_admin' ? MASTER_LINKS : user.role === 'employee' ? employeeLinks : MANAGER_LINKS;
+  const pendingApprovals = usePendingApprovalsCount(user.role === 'manager', pathname);
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -137,7 +167,15 @@ export function Nav({ user }: { user: SessionUser }) {
                 )}
               >
                 <Icon className="size-4 shrink-0" />
-                {link.label}
+                <span className="flex-1">{link.label}</span>
+                {link.href === '/aprovacoes' && pendingApprovals > 0 && (
+                  <span
+                    aria-label={`${pendingApprovals} pedidos pendentes`}
+                    className="rounded-full bg-sidebar-primary px-2 py-0.5 text-xs font-semibold text-sidebar-primary-foreground"
+                  >
+                    {pendingApprovals}
+                  </span>
+                )}
               </Link>
             );
           })}
