@@ -3,7 +3,6 @@ import {
   Controller,
   Delete,
   Get,
-  HttpCode,
   HttpStatus,
   Param,
   ParseUUIDPipe,
@@ -18,6 +17,8 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles, RolesGuard } from '../../common/guards/roles.guard';
 import { SubscriptionGuard } from '../../common/guards/subscription.guard';
 import { UserRole } from '../users/user.entity';
+import { JustificationDto } from '../approvals/dto/justification.dto';
+import { isPendingApproval } from '../approvals/approval-gate';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { SearchProductsDto } from './dto/search-products.dto';
@@ -71,10 +72,13 @@ export class ProductsController {
     return this.productsService.findPriceHistory(id);
   }
 
+  // 202 quando a mudança virou pedido de aprovação (SP2): nada foi gravado no produto. @Res() manual porque o
+  // status depende do resultado (o @HttpCode é fixo e sobrescreveria um res.status() com passthrough).
   @Patch(':id')
   @Roles(UserRole.MANAGER)
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateProductDto) {
-    return this.productsService.update(id, dto);
+  async update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateProductDto, @Res() res: Response) {
+    const result = await this.productsService.update(id, dto);
+    res.status(isPendingApproval(result) ? HttpStatus.ACCEPTED : HttpStatus.OK).json(result);
   }
 
   // Reativa um produto arquivado (o "Excluir" do painel arquiva — ver remove()).
@@ -84,11 +88,15 @@ export class ProductsController {
     return this.productsService.restore(id);
   }
 
-  // Exclusão lógica — ver nota em ProductsService.remove().
+  // Exclusão lógica — ver nota em ProductsService.remove(). 204, ou 202 se virou pedido de aprovação.
   @Delete(':id')
   @Roles(UserRole.MANAGER)
-  @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.productsService.remove(id);
+  async remove(@Param('id', ParseUUIDPipe) id: string, @Body() body: JustificationDto, @Res() res: Response) {
+    const result = await this.productsService.remove(id, body?.justification);
+    if (isPendingApproval(result)) {
+      res.status(HttpStatus.ACCEPTED).json(result);
+      return;
+    }
+    res.status(HttpStatus.NO_CONTENT).send();
   }
 }

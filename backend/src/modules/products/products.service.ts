@@ -1,6 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Brackets } from 'typeorm';
 import { getTenantContext, getTenantManager } from '../../common/tenant/tenant-storage';
+import { Loss } from '../losses/loss.entity';
+import { GateOptions, PendingApproval, applyApprovalGate, loadCompanyPolicies } from '../approvals/approval-gate';
+import { priceChangeExceeds } from '../approvals/approval-policies';
 import { User } from '../users/user.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { SearchProductsDto } from './dto/search-products.dto';
@@ -40,6 +43,18 @@ export interface SyncPage {
  * gravado bata com app.current_company_id — é a segunda camada de defesa
  * descrita na Seção 1.2 do documento, não uma substituição da primeira.
  */
+/** Campos comparados para detectar que o produto mudou entre o pedido e a aprovação (SP2, 3.4). */
+export function productSnapshot(product: Product): Record<string, unknown> {
+  return {
+    barcode: product.barcode,
+    name: product.name,
+    sku: product.sku ?? null,
+    unitPrice: String(product.unitPrice),
+    costPrice: String(product.costPrice),
+    isActive: product.isActive,
+  };
+}
+
 @Injectable()
 export class ProductsService {
   async create(dto: CreateProductDto): Promise<Product> {
@@ -169,7 +184,7 @@ export class ProductsService {
     return product;
   }
 
-  async update(id: string, dto: UpdateProductDto): Promise<Product> {
+  async update(id: string, dto: UpdateProductDto, options: GateOptions = {}): Promise<Product | PendingApproval> {
     const { companyId } = getTenantContext();
     const manager = getTenantManager();
 
@@ -178,19 +193,42 @@ export class ProductsService {
       throw new NotFoundException('Produto não encontrado.');
     }
 
-    if (dto.barcode && dto.barcode !== product.barcode) {
+    const barcodeChanges = !!dto.barcode && dto.barcode !== product.barcode;
+    if (barcodeChanges) {
       const existing = await manager.findOne(Product, {
         where: { companyId: companyId!, barcode: dto.barcode },
       });
       if (existing) {
         throw barcodeConflict(existing);
       }
-      product.barcode = dto.barcode;
     }
-    if (dto.name !== undefined) product.name = dto.name;
-    if (dto.sku !== undefined) product.sku = dto.sku || null;
-    if (dto.unitPrice !== undefined) product.unitPrice = dto.unitPrice;
-    if (dto.costPrice !== undefined) product.costPrice = dto.costPrice;
+
+    const { justification, ...changes } = dto;
+    if (!options.skipPolicy) {
+      const policies = await loadCompanyPolicies();
+      if (
+        policies.price_change.enabled &&
+        priceChangeExceeds(product, changes, policies.price_change.thresholdPercent)
+      ) {
+        const pending = await applyApprovalGate({
+          policy: 'price_change',
+          entityType: 'product',
+          entityId: product.id,
+          entityLabel: product.name,
+          operation: 'update',
+          payload: { ...changes },
+          snapshot: productSnapshot(product),
+          justification,
+        });
+        if (pending) return pending;
+      }
+    }
+
+    if (barcodeChanges) product.barcode = dto.barcode!;
+    if (changes.name !== undefined) product.name = changes.name;
+    if (changes.sku !== undefined) product.sku = changes.sku || null;
+    if (changes.unitPrice !== undefined) product.unitPrice = changes.unitPrice;
+    if (changes.costPrice !== undefined) product.costPrice = changes.costPrice;
 
     try {
       return await manager.save(product);
@@ -258,12 +296,29 @@ export class ProductsService {
 
   // Exclusão lógica (isActive = false): produtos já referenciados em perdas
   // registradas (Loss.productId tem onDelete RESTRICT) não podem ser apagados
-  // de verdade sem quebrar o histórico de relatórios.
-  async remove(id: string): Promise<void> {
+  // de verdade sem quebrar o histórico de relatórios. Arquivar produto COM perdas pode exigir
+  // justificativa/aprovação (política archive_with_history, SP2).
+  async remove(id: string, justification?: string, options: GateOptions = {}): Promise<PendingApproval | void> {
     const manager = getTenantManager();
     const product = await manager.findOne(Product, { where: { id } });
     if (!product) {
       throw new NotFoundException('Produto não encontrado.');
+    }
+    if (!options.skipPolicy && product.isActive) {
+      const policies = await loadCompanyPolicies();
+      if (policies.archive_with_history.enabled && (await manager.count(Loss, { where: { productId: id } })) > 0) {
+        const pending = await applyApprovalGate({
+          policy: 'archive_with_history',
+          entityType: 'product',
+          entityId: product.id,
+          entityLabel: product.name,
+          operation: 'archive',
+          payload: {},
+          snapshot: productSnapshot(product),
+          justification,
+        });
+        if (pending) return pending;
+      }
     }
     product.isActive = false;
     await manager.save(product);

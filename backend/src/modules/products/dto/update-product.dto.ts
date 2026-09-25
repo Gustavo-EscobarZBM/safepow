@@ -1,6 +1,7 @@
 import { IsNumber, IsOptional, IsString, Min, MinLength } from 'class-validator';
+import { JustificationDto } from '../../approvals/dto/justification.dto';
 
-export class UpdateProductDto {
+export class UpdateProductDto extends JustificationDto {
   @IsOptional()
   @IsString()
   @MinLength(1)

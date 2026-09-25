@@ -11,7 +11,7 @@ function runWithTenantContext<T>(manager: any, fn: () => Promise<T>): Promise<T>
 
 describe('ProductsService — costPrice', () => {
   it('grava costPrice ao criar um produto', async () => {
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockImplementation((_entity, data) => data),
       save: jest.fn().mockImplementation((data) => Promise.resolve({ id: 'prod-1', ...data })),
@@ -27,7 +27,7 @@ describe('ProductsService — costPrice', () => {
 
   it('atualiza costPrice quando informado', async () => {
     const existing = { id: 'prod-1', barcode: '123', name: 'Arroz 5kg', unitPrice: 24.9, costPrice: 18.5 };
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest.fn().mockResolvedValue(existing),
       save: jest.fn().mockImplementation((data) => Promise.resolve(data)),
     };
@@ -98,7 +98,7 @@ describe('ProductsService.create — conflito de código de barras (etapa 1.3)',
 describe('ProductsService.restore e findByBarcode (etapa 1.3)', () => {
   it('restore reativa um produto arquivado e devolve o produto', async () => {
     const product = { id: 'prod-1', isActive: false };
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest.fn().mockResolvedValue(product),
       save: jest.fn().mockImplementation((data) => Promise.resolve(data)),
     };
@@ -110,7 +110,7 @@ describe('ProductsService.restore e findByBarcode (etapa 1.3)', () => {
   });
 
   it('restore de produto já ativo é idempotente: devolve sem regravar', async () => {
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest.fn().mockResolvedValue({ id: 'prod-1', isActive: true }),
       save: jest.fn(),
     };
@@ -122,7 +122,7 @@ describe('ProductsService.restore e findByBarcode (etapa 1.3)', () => {
   });
 
   it('restore de produto inexistente ⇒ NotFoundException', async () => {
-    const manager = { findOne: jest.fn().mockResolvedValue(null), save: jest.fn() };
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]), findOne: jest.fn().mockResolvedValue(null), save: jest.fn() };
 
     await expect(runWithTenantContext(manager, () => new ProductsService().restore('x'))).rejects.toBeInstanceOf(
       NotFoundException,
@@ -132,7 +132,7 @@ describe('ProductsService.restore e findByBarcode (etapa 1.3)', () => {
 
 describe('ProductsService.update — conflito de código de barras (etapa 1.3)', () => {
   it('trocar para o código de um produto ARQUIVADO ⇒ 409 PRODUCT_ARCHIVED_EXISTS com o productId', async () => {
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest
         .fn()
         .mockResolvedValueOnce({ id: 'prod-1', barcode: '111', isActive: true })
@@ -153,7 +153,7 @@ describe('ProductsService.update — conflito de código de barras (etapa 1.3)',
     const uniqueViolation = Object.assign(new Error('duplicate key'), {
       driverError: { code: '23505', constraint: 'uq_products_company_barcode' },
     });
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest
         .fn()
         .mockResolvedValueOnce({ id: 'prod-1', barcode: '111', isActive: true })
