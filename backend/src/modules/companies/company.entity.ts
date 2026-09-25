@@ -63,6 +63,10 @@ export class Company {
   @Column({ type: 'uuid', nullable: true })
   lossVerifierId: string | null;
 
+  // Políticas de aprovação (SP2, 2.2 — migration 1700000017000). Normalizadas por approval-policies.ts.
+  @Column({ type: 'jsonb', default: () => "'{}'::jsonb" })
+  approvalPolicies: Record<string, unknown>;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 

@@ -8,6 +8,7 @@ import { ProductPriceHistory } from '../modules/products/product-price-history.e
 import { Product } from '../modules/products/product.entity';
 import { User } from '../modules/users/user.entity';
 import { AuditLog } from '../modules/audit/audit-log.entity';
+import { ChangeRequest } from '../modules/approvals/change-request.entity';
 
 /**
  * Única lista de entidades do TypeORM, importada por app.module.ts (conexão de runtime),
@@ -27,4 +28,5 @@ export const ENTITIES = [
   CompanyMonthlyRevenue,
   ProductPriceHistory,
   AuditLog,
+  ChangeRequest,
 ];
