@@ -166,4 +166,27 @@ describe('Fila de pedidos de aprovação (SP2, 2.2.1)', () => {
     expect((await http(baseUrl, 'GET', '/api/change-requests', employeeToken)).status).toBe(403);
     expect((await http(baseUrl, 'GET', '/api/change-requests?status=todos', approverToken)).status).toBe(400);
   });
+  it('aprovar e recusar ao mesmo tempo: só uma decisão vale e o estado final é coerente', async () => {
+    const thirdToken = await tokenFor(await seedUser(companyId, 'manager', { name: 'Carla' }), companyId);
+    for (let round = 0; round < 5; round++) {
+      await adminQuery(`UPDATE products SET "unitPrice" = 10 WHERE id = $1`, [productId]);
+      await adminQuery(`UPDATE change_requests SET status = 'cancelled' WHERE status = 'pending'`);
+      const id = await requestPriceChange(15 + round);
+
+      const results = await Promise.all([
+        http(baseUrl, 'POST', `/api/change-requests/${id}/approve`, approverToken, {}),
+        http(baseUrl, 'POST', `/api/change-requests/${id}/reject`, thirdToken, {}),
+      ]);
+
+      expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
+      const finalStatus = await statusOf(id);
+      const applied = (await productPrice()) !== '10.00';
+      expect(applied).toBe(finalStatus === 'approved');
+      const decisions = await adminQuery(
+        `SELECT action FROM audit_log WHERE "entityId" = $1 AND action IN ('approve','reject')`,
+        [id],
+      );
+      expect(decisions).toHaveLength(1);
+    }
+  });
 });

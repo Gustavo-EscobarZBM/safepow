@@ -143,7 +143,12 @@ export class ApprovalsService {
 
   private async loadPending(id: string): Promise<ChangeRequest> {
     await this.expireOverdue();
-    const request = await getTenantManager().findOne(ChangeRequest, { where: { id } });
+    // Trava a linha até o fim da transação: duas decisões simultâneas (aprovar × recusar, ou aprovar duas
+    // vezes) viram uma fila — a segunda relê o pedido já decidido e recebe 409.
+    const request = await getTenantManager().findOne(ChangeRequest, {
+      where: { id },
+      lock: { mode: 'pessimistic_write' },
+    });
     if (!request) throw new NotFoundException('Pedido não encontrado.');
     if (request.status !== 'pending') {
       throw new ConflictException({
@@ -170,7 +175,8 @@ export class ApprovalsService {
 
   private async decide(id: string, status: ChangeRequestStatus, note: string | null, deciderId: string | null) {
     await getTenantManager().query(
-      `UPDATE change_requests SET status = $2, "decisionNote" = $3, "decidedByUserId" = $4, "decidedAt" = now() WHERE id = $1`,
+      `UPDATE change_requests SET status = $2, "decisionNote" = $3, "decidedByUserId" = $4, "decidedAt" = now()
+        WHERE id = $1 AND status = 'pending'`,
       [id, status, note, deciderId || null],
     );
   }
@@ -183,11 +189,12 @@ export class ApprovalsService {
   private async currentSnapshot(request: ChangeRequest): Promise<Record<string, unknown> | null> {
     const manager = getTenantManager();
     if (request.entityType === 'product') {
-      const product = await manager.findOne(Product, { where: { id: request.entityId! } });
+      // Travada também: uma edição concorrente do registro espera a aprovação terminar (ou vice-versa).
+      const product = await manager.findOne(Product, { where: { id: request.entityId! }, lock: { mode: 'pessimistic_write' } });
       return product ? productSnapshot(product) : null;
     }
     if (request.entityType === 'loss') {
-      const loss = await manager.findOne(Loss, { where: { id: request.entityId! } });
+      const loss = await manager.findOne(Loss, { where: { id: request.entityId! }, lock: { mode: 'pessimistic_write' } });
       return loss ? lossSnapshot(loss) : null;
     }
     return null;
