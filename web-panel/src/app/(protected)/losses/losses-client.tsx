@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { History, Image as ImageIcon, Pencil, Smartphone, Monitor, Trash2 } from 'lucide-react';
 import { HistoryDrawer } from '@/components/history-drawer';
+import { useApprovalFlow } from '@/hooks/use-approval-flow';
 import { api, ApiError } from '@/lib/api-client';
 import type { Loss, LossLocationOption, LossReasonOption, Product, UserRole } from '@/lib/types';
 import { Pagination, paginate } from '@/components/pagination';
@@ -84,6 +85,8 @@ export function LossesClient({ role }: { role: UserRole }) {
 
   const [lossToEdit, setLossToEdit] = useState<Loss | null>(null);
   const [lossForHistory, setLossForHistory] = useState<Loss | null>(null);
+  // Mudanças sensíveis (SP2, 2.2): justificativa ou pedido de aprovação.
+  const approval = useApprovalFlow();
   const [editForm, setEditForm] = useState(emptyForm);
   const [editError, setEditError] = useState<string | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -171,6 +174,7 @@ export function LossesClient({ role }: { role: UserRole }) {
   }
 
   function openEdit(loss: Loss) {
+    approval.clearNotice();
     setLossToEdit(loss);
     setEditForm({
       productId: loss.productId,
@@ -189,16 +193,23 @@ export function LossesClient({ role }: { role: UserRole }) {
     setEditSubmitting(true);
     setEditError(null);
     try {
-      await api.patch(`losses/${lossToEdit.id}`, {
-        productId: editForm.productId,
-        quantity: Number(editForm.quantity) || 1,
-        reasonId: editForm.reasonId,
-        locationId: editForm.locationId,
-        occurredAt: new Date(editForm.occurredAt).toISOString(),
-        description: editForm.description || undefined,
-      });
-      setLossToEdit(null);
-      await loadLosses();
+      const lossId = lossToEdit.id;
+      await approval.execute(
+        (justification) =>
+          api.patch(`losses/${lossId}`, {
+            productId: editForm.productId,
+            quantity: Number(editForm.quantity) || 1,
+            reasonId: editForm.reasonId,
+            locationId: editForm.locationId,
+            occurredAt: new Date(editForm.occurredAt).toISOString(),
+            description: editForm.description || undefined,
+            ...(justification ? { justification } : {}),
+          }),
+        () => {
+          setLossToEdit(null);
+          loadLosses();
+        },
+      );
     } catch (e) {
       setEditError(e instanceof ApiError ? e.message : 'Erro ao salvar a perda.');
     } finally {
@@ -211,9 +222,16 @@ export function LossesClient({ role }: { role: UserRole }) {
     setDeleting(true);
     setDeleteError(null);
     try {
-      await api.delete(`losses/${lossToDelete.id}`);
-      setLossToDelete(null);
-      await loadLosses();
+      const lossId = lossToDelete.id;
+      approval.clearNotice();
+      await approval.execute(
+        (justification) =>
+          justification ? api.delete(`losses/${lossId}`, { justification }) : api.delete(`losses/${lossId}`),
+        () => {
+          setLossToDelete(null);
+          loadLosses();
+        },
+      );
     } catch (e) {
       setDeleteError(e instanceof ApiError ? e.message : 'Erro ao excluir a perda.');
     } finally {
@@ -240,6 +258,12 @@ export function LossesClient({ role }: { role: UserRole }) {
 
   return (
     <div className="space-y-6">
+      {approval.notice && (
+        <p role="status" className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+          {approval.notice}
+        </p>
+      )}
+      {approval.dialog}
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl text-foreground">Perdas registradas</h1>

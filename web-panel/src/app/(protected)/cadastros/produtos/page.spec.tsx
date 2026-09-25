@@ -287,3 +287,69 @@ describe('ProductsPage — cadastro de código de produto arquivado (etapa 1.3)'
     await waitFor(() => expect((api.get as Mock).mock.calls.length).toBeGreaterThan(searchesBefore));
   });
 });
+
+function justificationRequired(mode: 'approval' | 'justification') {
+  return new ApiError(409, mode === 'approval' ? 'Precisa de aprovação de outro gerente.' : 'Esta mudança exige uma justificativa.', {
+    errorCode: 'JUSTIFICATION_REQUIRED',
+    policy: 'price_change',
+    mode,
+  });
+}
+
+describe('ProductsPage — justificativa e aprovação (SP2, 2.2)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (api.get as Mock).mockImplementation(async (path: string) => {
+      if (path.startsWith('products/search')) return searchResult(products);
+      if (path.endsWith('/price-history')) return history(12, 'h-a');
+      throw new Error(`unexpected path: ${path}`);
+    });
+  });
+
+  const searchCount = () =>
+    (api.get as Mock).mock.calls.filter((call) => (call[0] as string).startsWith('products/search')).length;
+
+  it('editar preço sensível pede justificativa e reenvia com ela', async () => {
+    (api.patch as Mock).mockRejectedValueOnce(justificationRequired('justification')).mockResolvedValueOnce(products[0]);
+    render(<ProductsPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Editar Arroz 5kg' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Salvar alterações' }));
+
+    await userEvent.type(await screen.findByLabelText('Justificativa'), 'Fornecedor reajustou');
+    const before = searchCount();
+    await userEvent.click(screen.getByRole('button', { name: 'Confirmar' }));
+
+    await waitFor(() => expect(api.patch).toHaveBeenCalledTimes(2));
+    expect((api.patch as Mock).mock.calls[1][1]).toMatchObject({ name: 'Arroz 5kg', justification: 'Fornecedor reajustou' });
+    await waitFor(() => expect(searchCount()).toBeGreaterThan(before));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('cancelar a justificativa mantém a edição aberta, sem gravar', async () => {
+    (api.patch as Mock).mockRejectedValueOnce(justificationRequired('justification'));
+    render(<ProductsPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Editar Arroz 5kg' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Salvar alterações' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancelar', hidden: false }));
+
+    await waitFor(() => expect(screen.queryByLabelText('Justificativa')).not.toBeInTheDocument());
+    expect(screen.getByText('Editar produto')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Arroz 5kg')).toBeInTheDocument();
+    expect(api.patch).toHaveBeenCalledTimes(1);
+  });
+
+  it('arquivar produto com perdas em modo aprovação envia o pedido e avisa', async () => {
+    (api.delete as Mock)
+      .mockRejectedValueOnce(justificationRequired('approval'))
+      .mockResolvedValueOnce({ status: 'pending', changeRequestId: 'c1', policy: 'archive_with_history' });
+    render(<ProductsPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Arquivar Arroz 5kg' }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Arquivar' }));
+
+    await userEvent.type(await screen.findByLabelText('Justificativa'), 'Produto saiu de linha');
+    await userEvent.click(screen.getByRole('button', { name: 'Enviar para aprovação' }));
+
+    await waitFor(() => expect(api.delete).toHaveBeenLastCalledWith('products/p-a', { justification: 'Produto saiu de linha' }));
+    expect(await screen.findByText('Enviado para aprovação de outro gerente.')).toBeInTheDocument();
+  });
+});

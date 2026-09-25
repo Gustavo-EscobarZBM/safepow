@@ -6,6 +6,7 @@ import { api, ApiError } from '@/lib/api-client';
 import type { ImportJob, PriceHistoryEntry, Product, ProductStatusFilter } from '@/lib/types';
 import { PriceHistoryTimeline } from '@/components/price-history-timeline';
 import { HistoryDrawer } from '@/components/history-drawer';
+import { useApprovalFlow } from '@/hooks/use-approval-flow';
 import { Pagination } from '@/components/pagination';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -26,6 +27,8 @@ import {
 
 export default function ProductsPage() {
   const productSearch = useProductSearch();
+  // Mudanças sensíveis (SP2, 2.2): justificativa ou pedido de aprovação.
+  const approval = useApprovalFlow();
   const [actionError, setActionError] = useState<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -137,6 +140,7 @@ export default function ProductsPage() {
   }
 
   function openEdit(product: Product) {
+    approval.clearNotice();
     setProductToEdit(product);
     setEditForm({
       barcode: product.barcode,
@@ -154,14 +158,21 @@ export default function ProductsPage() {
     setEditSubmitting(true);
     setEditError(null);
     try {
-      await api.patch(`products/${productToEdit.id}`, {
-        barcode: editForm.barcode,
-        name: editForm.name,
-        unitPrice: editForm.unitPrice ? Number(editForm.unitPrice) : undefined,
-        costPrice: editForm.costPrice ? Number(editForm.costPrice) : undefined,
-      });
-      setProductToEdit(null);
-      productSearch.reload();
+      const productId = productToEdit.id;
+      await approval.execute(
+        (justification) =>
+          api.patch(`products/${productId}`, {
+            barcode: editForm.barcode,
+            name: editForm.name,
+            unitPrice: editForm.unitPrice ? Number(editForm.unitPrice) : undefined,
+            costPrice: editForm.costPrice ? Number(editForm.costPrice) : undefined,
+            ...(justification ? { justification } : {}),
+          }),
+        () => {
+          setProductToEdit(null);
+          productSearch.reload();
+        },
+      );
     } catch (e) {
       setEditError(e instanceof ApiError ? e.message : 'Erro ao salvar produto.');
     } finally {
@@ -174,9 +185,16 @@ export default function ProductsPage() {
     setArchiving(true);
     setActionError(null);
     try {
-      await api.delete(`products/${productToArchive.id}`);
-      setProductToArchive(null);
-      productSearch.reload();
+      const productId = productToArchive.id;
+      approval.clearNotice();
+      await approval.execute(
+        (justification) =>
+          justification ? api.delete(`products/${productId}`, { justification }) : api.delete(`products/${productId}`),
+        () => {
+          setProductToArchive(null);
+          productSearch.reload();
+        },
+      );
     } catch (e) {
       setActionError(e instanceof ApiError ? e.message : 'Erro ao arquivar produto.');
     } finally {
@@ -266,6 +284,12 @@ export default function ProductsPage() {
 
   return (
     <div className="space-y-6">
+      {approval.notice && (
+        <p role="status" className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+          {approval.notice}
+        </p>
+      )}
+      {approval.dialog}
       <div>
         <h1 className="font-display text-2xl text-foreground">Produtos</h1>
         <p className="text-sm text-muted-foreground">
