@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
-import { Between, IsNull } from 'typeorm';
+import { Between, EntityManager, IsNull } from 'typeorm';
+import { GateOptions, PendingApproval, applyApprovalGate, loadCompanyPolicies } from '../approvals/approval-gate';
 import { getTenantContext, getTenantManager } from '../../common/tenant/tenant-storage';
 import { Company } from '../companies/company.entity';
 import { CompanyMonthlyRevenue } from '../company-revenue/company-monthly-revenue.entity';
@@ -29,6 +30,23 @@ function isMinuteTruncatedEcho(requested: Date, current: Date): boolean {
     requested.getTime() % MINUTE_MS === 0 &&
     Math.floor(current.getTime() / MINUTE_MS) === requested.getTime() / MINUTE_MS
   );
+}
+
+/** Campos comparados para detectar que a perda mudou entre o pedido e a aprovação (SP2, 3.4). */
+export function lossSnapshot(loss: Loss): Record<string, unknown> {
+  return {
+    productId: loss.productId,
+    quantity: String(loss.quantity),
+    reasonId: loss.reasonId,
+    locationId: loss.locationId,
+    description: loss.description ?? null,
+    occurredAt: new Date(loss.occurredAt).toISOString(),
+  };
+}
+
+async function lossLabel(manager: EntityManager, loss: Loss): Promise<string> {
+  const product = await manager.findOne(Product, { where: { id: loss.productId } });
+  return `Perda de ${product?.name ?? 'produto'}`;
 }
 
 @Injectable()
@@ -89,10 +107,27 @@ export class LossesService {
    * etc.) — os mesmos campos do formulário de registro, exceto os que são
    * fixados na criação (clientGeneratedId, reportedByUserId, source).
    */
-  async update(id: string, dto: UpdateLossDto): Promise<Loss> {
+  async update(id: string, dto: UpdateLossDto, options: GateOptions = {}): Promise<Loss | PendingApproval> {
     const manager = getTenantManager();
     const loss = await manager.findOne(Loss, { where: { id } });
     if (!loss) throw new NotFoundException('Perda não encontrada.');
+    const { justification, ...changes } = dto;
+    if (!options.skipPolicy) {
+      const policies = await loadCompanyPolicies();
+      if (policies.loss_edit.enabled) {
+        const pending = await applyApprovalGate({
+          policy: 'loss_edit',
+          entityType: 'loss',
+          entityId: loss.id,
+          entityLabel: await lossLabel(manager, loss),
+          operation: 'update',
+          payload: { ...changes },
+          snapshot: lossSnapshot(loss),
+          justification,
+        });
+        if (pending) return pending;
+      }
+    }
 
     const previousProductId = loss.productId;
     const previousOccurredAt = new Date(loss.occurredAt).getTime();
@@ -137,9 +172,28 @@ export class LossesService {
   }
 
   // Nenhuma outra tabela referencia losses (é um registro-folha), então a
-  // exclusão é direta — sem a nuance de FK RESTRICT usada em produtos/usuários.
-  async remove(id: string): Promise<void> {
+  // exclusão é direta — sem a nuance de FK RESTRICT usada em produtos/usuários. Pode exigir
+  // justificativa/aprovação (política loss_edit, SP2).
+  async remove(id: string, justification?: string, options: GateOptions = {}): Promise<PendingApproval | void> {
     const manager = getTenantManager();
+    if (!options.skipPolicy) {
+      const policies = await loadCompanyPolicies();
+      if (policies.loss_edit.enabled) {
+        const loss = await manager.findOne(Loss, { where: { id } });
+        if (!loss) throw new NotFoundException('Perda não encontrada.');
+        const pending = await applyApprovalGate({
+          policy: 'loss_edit',
+          entityType: 'loss',
+          entityId: loss.id,
+          entityLabel: await lossLabel(manager, loss),
+          operation: 'delete',
+          payload: {},
+          snapshot: lossSnapshot(loss),
+          justification,
+        });
+        if (pending) return pending;
+      }
+    }
     const result = await manager.delete(Loss, id);
     if (result.affected === 0) {
       throw new NotFoundException('Perda não encontrada.');

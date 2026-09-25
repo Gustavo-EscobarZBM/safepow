@@ -1,3 +1,4 @@
+import { Loss } from './loss.entity';
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { tenantStorage } from '../../common/tenant/tenant-storage';
 import { UserRole } from '../users/user.entity';
@@ -18,7 +19,7 @@ function runWithTenantContext<T>(manager: any, fn: () => Promise<T>): Promise<T>
 
 describe('LossesService.create (idempotência offline — Seção 4.2)', () => {
   it('cria um novo registro quando o clientGeneratedId ainda não existe', async () => {
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest.fn(),
       create: jest.fn().mockImplementation((_entity, data) => data),
       save: jest.fn().mockImplementation((data) => Promise.resolve({ id: 'loss-1', ...data })),
@@ -54,7 +55,7 @@ describe('LossesService.create (idempotência offline — Seção 4.2)', () => {
       companyId: COMPANY_ID,
       productId: PRODUCT_ID,
     };
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest.fn().mockResolvedValue(existingLoss),
       create: jest.fn(),
       save: jest.fn(),
@@ -80,7 +81,7 @@ describe('LossesService.create (idempotência offline — Seção 4.2)', () => {
   });
 
   it('lança NotFoundException quando o produto informado não existe na empresa', async () => {
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(null),
       create: jest.fn(),
       save: jest.fn(),
@@ -103,7 +104,7 @@ describe('LossesService.create (idempotência offline — Seção 4.2)', () => {
   });
 
   it('lança NotFoundException quando o motivo informado não existe na empresa', async () => {
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest
         .fn()
         .mockResolvedValueOnce(null) // loss existente
@@ -130,7 +131,7 @@ describe('LossesService.create (idempotência offline — Seção 4.2)', () => {
   });
 
   it('lança NotFoundException quando o local informado não existe na empresa', async () => {
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest
         .fn()
         .mockResolvedValueOnce(null) // loss existente
@@ -158,7 +159,7 @@ describe('LossesService.create (idempotência offline — Seção 4.2)', () => {
   });
 
   it('grava requiresVerification=true quando a empresa tem a conferência de descarte ativada', async () => {
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest.fn(),
       create: jest.fn().mockImplementation((_entity, data) => data),
       save: jest.fn().mockImplementation((data) => Promise.resolve({ id: 'loss-1', ...data })),
@@ -187,7 +188,7 @@ describe('LossesService.create (idempotência offline — Seção 4.2)', () => {
   });
 
   it('grava requiresVerification=false quando a empresa não tem a conferência ativada', async () => {
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest.fn(),
       create: jest.fn().mockImplementation((_entity, data) => data),
       save: jest.fn().mockImplementation((data) => Promise.resolve({ id: 'loss-1', ...data })),
@@ -222,7 +223,7 @@ function runAs<T>(role: UserRole, userId: string, manager: any, fn: () => Promis
 
 describe('LossesService.findPendingVerification / verify (conferência de descarte)', () => {
   it('MANAGER pode listar as pendências de conferência', async () => {
-    const manager = { find: jest.fn().mockResolvedValue([{ id: 'loss-1' }]) };
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]), find: jest.fn().mockResolvedValue([{ id: 'loss-1' }]) };
     const service = new LossesService();
 
     const result = await runAs(UserRole.MANAGER, 'manager-1', manager, () => service.findPendingVerification());
@@ -231,7 +232,7 @@ describe('LossesService.findPendingVerification / verify (conferência de descar
   });
 
   it('o funcionário designado como conferente pode listar as pendências', async () => {
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       find: jest.fn().mockResolvedValue([{ id: 'loss-1' }]),
       findOne: jest.fn().mockResolvedValue({ id: COMPANY_ID, lossVerifierId: 'emp-verificador' }),
     };
@@ -245,7 +246,7 @@ describe('LossesService.findPendingVerification / verify (conferência de descar
   });
 
   it('um funcionário que não é o conferente designado não pode listar as pendências', async () => {
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       find: jest.fn(),
       findOne: jest.fn().mockResolvedValue({ id: COMPANY_ID, lossVerifierId: 'emp-verificador' }),
     };
@@ -258,7 +259,7 @@ describe('LossesService.findPendingVerification / verify (conferência de descar
 
   it('verify marca verifiedAt e verifiedByUserId quando quem confirma é MANAGER', async () => {
     const loss = { id: 'loss-1', requiresVerification: true, verifiedAt: null, verifiedByUserId: null };
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest.fn().mockResolvedValue(loss),
       save: jest.fn().mockImplementation((l) => Promise.resolve(l)),
     };
@@ -271,7 +272,7 @@ describe('LossesService.findPendingVerification / verify (conferência de descar
   });
 
   it('verify lança NotFoundException quando a perda não existe', async () => {
-    const manager = { findOne: jest.fn().mockResolvedValue(null) };
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]), findOne: jest.fn().mockResolvedValue(null) };
     const service = new LossesService();
 
     await expect(
@@ -281,7 +282,7 @@ describe('LossesService.findPendingVerification / verify (conferência de descar
 
   it('verify lança ConflictException quando a perda já foi conferida', async () => {
     const loss = { id: 'loss-1', requiresVerification: true, verifiedAt: new Date() };
-    const manager = { findOne: jest.fn().mockResolvedValue(loss) };
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]), findOne: jest.fn().mockResolvedValue(loss) };
     const service = new LossesService();
 
     await expect(runAs(UserRole.MANAGER, 'manager-1', manager, () => service.verify('loss-1'))).rejects.toThrow(
@@ -291,7 +292,7 @@ describe('LossesService.findPendingVerification / verify (conferência de descar
 
   it('verify lança BadRequestException quando a perda não requer conferência', async () => {
     const loss = { id: 'loss-1', requiresVerification: false, verifiedAt: null };
-    const manager = { findOne: jest.fn().mockResolvedValue(loss) };
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]), findOne: jest.fn().mockResolvedValue(loss) };
     const service = new LossesService();
 
     await expect(runAs(UserRole.MANAGER, 'manager-1', manager, () => service.verify('loss-1'))).rejects.toThrow(
@@ -304,7 +305,7 @@ describe('LossesService — valor congelado (SP1, sub-etapa 1.2.3)', () => {
   const OCCURRED_AT = '2026-09-10T15:00:00.000Z';
 
   it('create grava o preço vigente em occurredAt (não o preço atual do produto)', async () => {
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest.fn(),
       create: jest.fn().mockImplementation((_entity, data) => data),
       save: jest.fn().mockImplementation((data) => Promise.resolve({ id: 'loss-1', ...data })),
@@ -344,7 +345,7 @@ describe('LossesService — valor congelado (SP1, sub-etapa 1.2.3)', () => {
       unitCostAtLoss: 15,
       valuationSource: 'snapshot',
     };
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest.fn().mockResolvedValueOnce(loss),
       save: jest.fn().mockImplementation((data) => Promise.resolve(data)),
     };
@@ -366,7 +367,7 @@ describe('LossesService — valor congelado (SP1, sub-etapa 1.2.3)', () => {
       unitCostAtLoss: 15,
       valuationSource: 'snapshot',
     };
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest
         .fn()
         .mockResolvedValueOnce(loss)
@@ -395,7 +396,7 @@ describe('LossesService — valor congelado (SP1, sub-etapa 1.2.3)', () => {
       unitCostAtLoss: 15,
       valuationSource: 'backfill_current',
     };
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest
         .fn()
         .mockResolvedValueOnce(loss)
@@ -409,7 +410,7 @@ describe('LossesService — valor congelado (SP1, sub-etapa 1.2.3)', () => {
 
     // 1ª chamada: a perda; 2ª: validação do motivo. Nenhuma consulta de produto/histórico.
     expect(manager.findOne).toHaveBeenCalledTimes(2);
-    expect(result.occurredAt).toEqual(original);
+    expect((result as Loss).occurredAt).toEqual(original);
     expect(result).toMatchObject({ unitPriceAtLoss: 25, unitCostAtLoss: 15, valuationSource: 'backfill_current' });
   });
 
@@ -422,7 +423,7 @@ describe('LossesService — valor congelado (SP1, sub-etapa 1.2.3)', () => {
       unitCostAtLoss: 15,
       valuationSource: 'snapshot',
     };
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest
         .fn()
         .mockResolvedValueOnce(loss)
@@ -435,7 +436,7 @@ describe('LossesService — valor congelado (SP1, sub-etapa 1.2.3)', () => {
       new LossesService().update('loss-1', { occurredAt: '2026-09-10T15:01:00.000Z' }),
     );
 
-    expect(result.occurredAt).toEqual(new Date('2026-09-10T15:01:00.000Z'));
+    expect((result as Loss).occurredAt).toEqual(new Date('2026-09-10T15:01:00.000Z'));
     expect(result).toMatchObject({ unitPriceAtLoss: 18, unitCostAtLoss: 9 });
   });
 
@@ -448,7 +449,7 @@ describe('LossesService — valor congelado (SP1, sub-etapa 1.2.3)', () => {
       unitCostAtLoss: 15,
       valuationSource: 'snapshot',
     };
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest
         .fn()
         .mockResolvedValueOnce(loss)
@@ -475,7 +476,7 @@ describe('LossesService — valor congelado (SP1, sub-etapa 1.2.3)', () => {
       unitCostAtLoss: 15,
       valuationSource: 'snapshot',
     };
-    const manager = {
+    const manager = { query: jest.fn().mockResolvedValue([{ approvalPolicies: {} }]),
       findOne: jest
         .fn()
         .mockResolvedValueOnce(loss)

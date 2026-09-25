@@ -1,8 +1,9 @@
 import { IsDateString, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { JustificationDto } from '../../approvals/dto/justification.dto';
 
 // Edição manual pelo gerente — não inclui clientGeneratedId, reportedByUserId
 // nem source, que são fixados no momento da criação e não fazem sentido mudar.
-export class UpdateLossDto {
+export class UpdateLossDto extends JustificationDto {
   @IsOptional()
   @IsUUID()
   productId?: string;

@@ -3,7 +3,6 @@ import {
   Controller,
   Delete,
   Get,
-  HttpCode,
   HttpStatus,
   Param,
   ParseUUIDPipe,
@@ -18,6 +17,8 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles, RolesGuard } from '../../common/guards/roles.guard';
 import { SubscriptionGuard } from '../../common/guards/subscription.guard';
 import { UserRole } from '../users/user.entity';
+import { JustificationDto } from '../approvals/dto/justification.dto';
+import { isPendingApproval } from '../approvals/approval-gate';
 import { CreateLossDto } from './dto/create-loss.dto';
 import { QueryLossesDto } from './dto/query-losses.dto';
 import { UpdateLossDto } from './dto/update-loss.dto';
@@ -40,15 +41,20 @@ export class LossesController {
   // errados, diferente do fluxo de registro em si, aberto a funcionários).
   @Patch(':id')
   @Roles(UserRole.MANAGER)
-  update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateLossDto) {
-    return this.lossesService.update(id, dto);
+  async update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateLossDto, @Res() res: Response) {
+    const result = await this.lossesService.update(id, dto);
+    res.status(isPendingApproval(result) ? HttpStatus.ACCEPTED : HttpStatus.OK).json(result);
   }
 
   @Delete(':id')
   @Roles(UserRole.MANAGER)
-  @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.lossesService.remove(id);
+  async remove(@Param('id', ParseUUIDPipe) id: string, @Body() body: JustificationDto, @Res() res: Response) {
+    const result = await this.lossesService.remove(id, body?.justification);
+    if (isPendingApproval(result)) {
+      res.status(HttpStatus.ACCEPTED).json(result);
+      return;
+    }
+    res.status(HttpStatus.NO_CONTENT).send();
   }
 
   // Listagem detalhada — painel do gerente.
