@@ -172,6 +172,12 @@ com empresa bloqueada não gera evento; `login_failed` com ator = dono da conta;
 `trust proxy`/`isIP` no `auth.controller`; CSV em UTC; `to` só com data exclui o dia; expor `X-Request-Id`
 no CORS (2.1.2); faltam testes de cascata com perdas, unitário do `AuditService` e `from > to`; formato
 de `changes` em create/delete leva `from: null`/`to: null`.
+**Resultado da 2.1.2 (2026-09-24):** página **Auditoria** (`/auditoria`, menu do gerente: filtros de entidade,
+ação e período — o período cobre dias inteiros no fuso do navegador —, paginação de 50, exportar CSV) e
+gaveta **Histórico** (`HistoryDrawer`, busca sozinha `GET /audit?entityType=&entityId=`, 100 mais recentes)
+em Produtos (diálogo de edição), Perdas (linha) e Usuários (linha). Rótulos e formatação num mapa único
+(`web-panel/src/lib/audit.ts`). Sem mudança no backend. Verificada no navegador (desktop e celular) com os
+dados reais do banco de desenvolvimento. **Etapa 2.1 concluída.**
 
 **Pronto quando:** toda mudança em produto, motivo, local, perda, usuário, empresa e faturamento aparece no
 Histórico e na página Auditoria com quem/quando/o quê/de onde; logins e importações aparecem como eventos;
