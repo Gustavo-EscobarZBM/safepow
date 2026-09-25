@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { TenantContextMiddleware } from './common/tenant/tenant-context.middleware';
+import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { BillingModule } from './modules/billing/billing.module';
@@ -78,6 +79,7 @@ import { UsersModule } from './modules/users/users.module';
     ImportsModule,
     BillingModule,
     AuditModule,
+    ApprovalsModule,
   ],
 })
 export class AppModule implements NestModule {

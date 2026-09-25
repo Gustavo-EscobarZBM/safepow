@@ -256,6 +256,18 @@ aplica, autoaprovação bloqueada, recusa, cancelamento, expiração preguiçosa
 auditoria de cada passo, RLS. Web: diálogo de justificativa reenviando, aviso de pendente, página
 Aprovações.
 
+**Divisão da etapa (2026-09-25):** 2.2.1 = backend; 2.2.2 = web (Configurações › Aprovações, página
+Aprovações com selo no menu, diálogos de justificativa e "Enviado para aprovação").
+**Resultado da 2.2.1 (2026-09-25):** migration `1700000017000-ApprovalRequests` (`companies.approvalPolicies`,
+`change_requests` com RLS, sem DELETE para o app, um pendente por entidade+política); regras puras
+(`approval-policies.ts`, limite em centavos inteiros); portão `approval-gate.ts` em `PATCH/DELETE
+/products/:id` e `PATCH/DELETE /losses/:id` (409 `JUSTIFICATION_REQUIRED` com `mode`, 202 pendente);
+`GET /change-requests`, `/pending-count`, `POST /:id/approve|reject|cancel`; `GET/PUT /approval-policies`.
+**Decisões da execução:** colunas `operation` e `entityLabel` em `change_requests`; o 409 informa também o
+`mode`; aprovação sobre registro alterado devolve 200 com o pedido `expired` (lançar erro desfaria a marcação);
+reaplicação que falha devolve o erro e mantém o pedido pendente; cancelar é só de quem pediu; políticas em
+`/approval-policies` (fora de `companies/me/settings`); histórico de preço aprovado sai com origem `approval`.
+
 **Pronto quando:** com a política ligada, mudar custo > 20% numa empresa com 2 gerentes cai na fila e só
 é aplicado quando o outro gerente aprova; numa empresa com 1 gerente, exige justificativa, que aparece no
 Histórico.
