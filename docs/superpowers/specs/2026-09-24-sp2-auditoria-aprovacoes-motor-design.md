@@ -268,6 +268,13 @@ Aprovações com selo no menu, diálogos de justificativa e "Enviado para aprova
 reaplicação que falha devolve o erro e mantém o pedido pendente; cancelar é só de quem pediu; políticas em
 `/approval-policies` (fora de `companies/me/settings`); histórico de preço aprovado sai com origem `approval`.
 
+**Resultado da 2.2.2 (2026-09-25):** página **Aprovações** (`/aprovacoes`: políticas com o modo atual e fila
+Pendentes/Decididos com aprovar/recusar com observação e cancelar o próprio pedido) — a configuração das políticas
+ficou nesta página porque o painel não tem página de Configurações da empresa; selo de pendentes no menu; diálogo
+de justificativa e aviso "Enviado para aprovação" em editar/arquivar produto e editar/excluir perda
+(`useApprovalFlow`). Verificada no navegador com o banco de desenvolvimento (política ligada, edição de preço
+pedindo justificativa, auditoria com o motivo; banco devolvido ao estado anterior). **Etapa 2.2 concluída.**
+
 **Pronto quando:** com a política ligada, mudar custo > 20% numa empresa com 2 gerentes cai na fila e só
 é aplicado quando o outro gerente aprova; numa empresa com 1 gerente, exige justificativa, que aparece no
 Histórico.
