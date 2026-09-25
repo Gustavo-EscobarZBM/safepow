@@ -54,6 +54,22 @@ describe('ProductsPage — linha do tempo de preços no diálogo de edição', (
     expect(api.get).toHaveBeenCalledWith('products/p-a/price-history');
   });
 
+  it('no diálogo de edição, "Histórico de alterações" abre a gaveta daquele produto', async () => {
+    (api.get as Mock).mockImplementation(async (path: string) => {
+      if (path.startsWith('products/search')) return searchResult(products);
+      if (path === 'products/p-a/price-history') return history(12, 'h-a');
+      if (path.startsWith('audit?')) return { items: [], total: 0, page: 1, pageSize: 100 };
+      throw new Error(`unexpected path: ${path}`);
+    });
+
+    render(<ProductsPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Editar Arroz 5kg' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Histórico de alterações' }));
+
+    expect(await screen.findByText('Histórico — Arroz 5kg')).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith('audit?entityType=product&entityId=p-a&pageSize=100');
+  });
+
   it('o diálogo de edição tem altura limitada e rola por dentro (celular: Salvar nunca fica fora da tela)', async () => {
     (api.get as Mock).mockImplementation(async (path: string) => {
       if (path.startsWith('products/search')) return searchResult(products);

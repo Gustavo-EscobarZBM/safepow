@@ -1,8 +1,9 @@
 'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
-import { Pencil, Trash2 } from 'lucide-react';
+import { History, Pencil, Trash2 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api-client';
+import { HistoryDrawer } from '@/components/history-drawer';
 import type { TenantUser, UserRole } from '@/lib/types';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -32,6 +33,7 @@ export default function UsersPage() {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const [userToEdit, setUserToEdit] = useState<TenantUser | null>(null);
+  const [userForHistory, setUserForHistory] = useState<TenantUser | null>(null);
   const [editForm, setEditForm] = useState({ name: '', email: '', role: 'employee' as UserRole, password: '' });
   const [editError, setEditError] = useState<string | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -238,6 +240,15 @@ export default function UsersPage() {
                       <Button
                         variant="ghost"
                         size="icon"
+                        aria-label={`Histórico de ${user.name}`}
+                        title="Histórico"
+                        onClick={() => setUserForHistory(user)}
+                      >
+                        <History className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         aria-label={`Editar ${user.name}`}
                         title="Editar"
                         onClick={() => openEdit(user)}
@@ -350,6 +361,13 @@ export default function UsersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <HistoryDrawer
+        entityType="user"
+        entityId={userForHistory?.id ?? null}
+        title={userForHistory?.name ?? ''}
+        open={!!userForHistory}
+        onOpenChange={(open) => !open && setUserForHistory(null)}
+      />
     </div>
   );
 }

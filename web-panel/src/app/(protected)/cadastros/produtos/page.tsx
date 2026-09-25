@@ -5,6 +5,7 @@ import { Archive, ArchiveRestore, Pencil, Search } from 'lucide-react';
 import { api, ApiError } from '@/lib/api-client';
 import type { ImportJob, PriceHistoryEntry, Product, ProductStatusFilter } from '@/lib/types';
 import { PriceHistoryTimeline } from '@/components/price-history-timeline';
+import { HistoryDrawer } from '@/components/history-drawer';
 import { Pagination } from '@/components/pagination';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -40,6 +41,7 @@ export default function ProductsPage() {
   const [costPrice, setCostPrice] = useState('');
 
   const [productToEdit, setProductToEdit] = useState<Product | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [editForm, setEditForm] = useState({ barcode: '', name: '', unitPrice: '', costPrice: '' });
   const [editError, setEditError] = useState<string | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -572,6 +574,9 @@ export default function ProductsPage() {
               </div>
             </div>
             <PriceHistoryTimeline {...priceHistory} />
+            <Button type="button" variant="outline" size="sm" onClick={() => setHistoryOpen(true)}>
+              Histórico de alterações
+            </Button>
             {editError && <p className="text-sm text-destructive">{editError}</p>}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setProductToEdit(null)}>
@@ -584,6 +589,14 @@ export default function ProductsPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <HistoryDrawer
+        entityType="product"
+        entityId={productToEdit?.id ?? null}
+        title={productToEdit?.name ?? ''}
+        open={historyOpen && !!productToEdit}
+        onOpenChange={setHistoryOpen}
+      />
 
       <Dialog open={!!productToArchive} onOpenChange={(open) => !open && setProductToArchive(null)}>
         <DialogContent>

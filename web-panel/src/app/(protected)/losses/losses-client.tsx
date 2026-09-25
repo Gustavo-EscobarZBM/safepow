@@ -1,7 +1,8 @@
 'use client';
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { Image as ImageIcon, Pencil, Smartphone, Monitor, Trash2 } from 'lucide-react';
+import { History, Image as ImageIcon, Pencil, Smartphone, Monitor, Trash2 } from 'lucide-react';
+import { HistoryDrawer } from '@/components/history-drawer';
 import { api, ApiError } from '@/lib/api-client';
 import type { Loss, LossLocationOption, LossReasonOption, Product, UserRole } from '@/lib/types';
 import { Pagination, paginate } from '@/components/pagination';
@@ -82,6 +83,7 @@ export function LossesClient({ role }: { role: UserRole }) {
   const [justRegistered, setJustRegistered] = useState(false);
 
   const [lossToEdit, setLossToEdit] = useState<Loss | null>(null);
+  const [lossForHistory, setLossForHistory] = useState<Loss | null>(null);
   const [editForm, setEditForm] = useState(emptyForm);
   const [editError, setEditError] = useState<string | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -460,6 +462,15 @@ export function LossesClient({ role }: { role: UserRole }) {
                             <Button
                               variant="ghost"
                               size="icon"
+                              aria-label="Histórico da perda"
+                              title="Histórico"
+                              onClick={() => setLossForHistory(loss)}
+                            >
+                              <History className="size-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
                               aria-label="Editar perda"
                               title="Editar"
                               onClick={() => openEdit(loss)}
@@ -634,6 +645,13 @@ export function LossesClient({ role }: { role: UserRole }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <HistoryDrawer
+        entityType="loss"
+        entityId={lossForHistory?.id ?? null}
+        title={lossForHistory ? `Perda de ${lossForHistory.product?.name ?? 'produto'}` : ''}
+        open={!!lossForHistory}
+        onOpenChange={(open) => !open && setLossForHistory(null)}
+      />
     </div>
   );
 }
