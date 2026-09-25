@@ -39,8 +39,18 @@ export function isPendingApproval(value: unknown): value is PendingApprovalResul
   );
 }
 
-function sameValue(a: unknown, b: unknown): boolean {
+// Datas comparadas no minuto: o formulário (datetime-local) reenvia a data da perda sem os segundos que o app
+// gravou — o backend trata esse eco como "não mudou", e o pedido não pode mostrar uma mudança que não existe.
+const DATE_FIELDS = new Set(['occurredAt', 'verifiedAt', 'lastManualUnlockAt']);
+
+function sameMinute(a: unknown, b: unknown): boolean {
+  const minute = (value: unknown) => Math.floor(new Date(String(value)).getTime() / 60_000);
+  return !Number.isNaN(minute(a)) && minute(a) === minute(b);
+}
+
+function sameValue(field: string, a: unknown, b: unknown): boolean {
   if (a === b) return true;
+  if (DATE_FIELDS.has(field) && a && b) return sameMinute(a, b);
   const bothNumeric = a !== null && b !== null && a !== '' && b !== '' && !Number.isNaN(Number(a)) && !Number.isNaN(Number(b));
   return bothNumeric ? Number(a) === Number(b) : String(a ?? '') === String(b ?? '');
 }
@@ -50,6 +60,6 @@ export function describeRequest(request: ChangeRequest): string[] {
   if (request.operation === 'archive') return ['Arquivar o produto'];
   if (request.operation === 'delete') return ['Excluir a perda'];
   return Object.entries(request.payload)
-    .filter(([field, to]) => to !== undefined && !sameValue(request.snapshot[field], to))
+    .filter(([field, to]) => to !== undefined && !sameValue(field, request.snapshot[field], to))
     .map(([field, to]) => describeChange({ field, from: request.snapshot[field], to }, 'update'));
 }

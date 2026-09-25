@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '@/lib/api-client';
 import { POLICY_LABELS, describeRequest, modeDescription } from '@/lib/approvals';
 import { formatDateTimeBR } from '@/lib/format';
@@ -65,18 +65,25 @@ export function AprovacoesClient({ currentUserId }: { currentUserId: string }) {
       .catch((e: unknown) => setPoliciesError(e instanceof ApiError ? e.message : 'Erro ao carregar as políticas.'));
   }, []);
 
+  // Só a resposta da carga mais recente vale: trocar de aba rápido não pode mostrar a lista da outra aba.
+  const loadSeq = useRef(0);
   const loadRequests = useCallback(async (which: Tab) => {
+    const seq = ++loadSeq.current;
     setLoadingRequests(true);
     try {
-      setRequests(await api.get<ChangeRequest[]>(`change-requests?status=${which}`));
+      const result = await api.get<ChangeRequest[]>(`change-requests?status=${which}`);
+      if (seq === loadSeq.current) setRequests(result);
     } catch (e) {
+      if (seq !== loadSeq.current) return;
+      setRequests([]); // sem a lista anterior (com botões de decisão) sob a aba errada
       setError(e instanceof ApiError ? e.message : 'Erro ao carregar os pedidos.');
     } finally {
-      setLoadingRequests(false);
+      if (seq === loadSeq.current) setLoadingRequests(false);
     }
   }, []);
 
   useEffect(() => {
+    setError(null);
     void loadRequests(tab);
   }, [tab, loadRequests]);
 
@@ -200,7 +207,7 @@ export function AprovacoesClient({ currentUserId }: { currentUserId: string }) {
 
         {loadingRequests ? (
           <p className="text-sm text-muted-foreground">Carregando pedidos...</p>
-        ) : requests.length === 0 ? (
+        ) : requests.length === 0 && !error ? (
           <p className="text-sm text-muted-foreground">
             {tab === 'pending' ? 'Nenhum pedido aguardando aprovação.' : 'Nenhum pedido decidido ainda.'}
           </p>

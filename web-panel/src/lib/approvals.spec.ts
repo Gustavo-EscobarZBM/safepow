@@ -86,4 +86,16 @@ describe('describeRequest', () => {
       ),
     ).toEqual(['Motivo: alterado']);
   });
+  it('data da perda com segundos vs. o eco do formulário (minuto) não aparece como mudança', () => {
+    expect(
+      describeRequest(
+        request({
+          entityType: 'loss',
+          policy: 'loss_edit',
+          snapshot: { occurredAt: '2026-09-25T12:14:37.512Z', quantity: '2' },
+          payload: { occurredAt: '2026-09-25T12:14:00.000Z', quantity: 3 },
+        }),
+      ),
+    ).toEqual(['Quantidade: 2 → 3']);
+  });
 });

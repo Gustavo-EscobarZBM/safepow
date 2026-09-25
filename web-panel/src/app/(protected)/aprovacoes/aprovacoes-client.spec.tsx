@@ -183,4 +183,40 @@ describe('AprovacoesClient', () => {
     await waitFor(() => expect(listener).toHaveBeenCalled());
     window.removeEventListener('approvals:changed', listener);
   });
+  it('troca rápida de abas: resposta atrasada da outra aba é descartada', async () => {
+    let resolveDecided: (value: unknown) => void = () => {};
+    (api.get as Mock).mockImplementation((path: string) => {
+      if (path === 'approval-policies') return Promise.resolve(POLICIES);
+      if (path === 'change-requests?status=pending') return Promise.resolve([request({ entityLabel: 'Pedido pendente' })]);
+      if (path === 'change-requests?status=decided') return new Promise((resolve) => (resolveDecided = resolve));
+      return Promise.reject(new Error(path));
+    });
+    render(<AprovacoesClient currentUserId={ME} />);
+    await screen.findByText('Pedido pendente');
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Decididos' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Pendentes' }));
+    await screen.findByText('Pedido pendente');
+    resolveDecided([request({ id: 'd1', status: 'rejected', entityLabel: 'Pedido decidido' })]);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByText('Pedido decidido')).not.toBeInTheDocument();
+    expect(screen.getByText('Pedido pendente')).toBeInTheDocument();
+  });
+
+  it('erro ao carregar a outra aba não deixa na tela a lista anterior', async () => {
+    (api.get as Mock).mockImplementation((path: string) => {
+      if (path === 'approval-policies') return Promise.resolve(POLICIES);
+      if (path === 'change-requests?status=pending') return Promise.resolve([request({ entityLabel: 'Pedido pendente' })]);
+      return Promise.reject(new ApiError(500, 'Falha ao listar.'));
+    });
+    render(<AprovacoesClient currentUserId={ME} />);
+    await screen.findByText('Pedido pendente');
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Decididos' }));
+
+    expect(await screen.findByText('Falha ao listar.')).toBeInTheDocument();
+    expect(screen.queryByText('Pedido pendente')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Aprovar' })).not.toBeInTheDocument();
+  });
 });
