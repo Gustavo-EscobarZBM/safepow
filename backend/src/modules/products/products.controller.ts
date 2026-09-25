@@ -21,6 +21,7 @@ import { JustificationDto } from '../approvals/dto/justification.dto';
 import { isPendingApproval } from '../approvals/approval-gate';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { RetroFixDto, RetroFixQueryDto } from './dto/retro-fix.dto';
 import { SearchProductsDto } from './dto/search-products.dto';
 import { SyncProductsQueryDto } from './dto/sync-products.dto';
 import { ProductsService } from './products.service';
@@ -82,6 +83,20 @@ export class ProductsController {
   }
 
   // Reativa um produto arquivado (o "Excluir" do painel arquiva — ver remove()).
+  // Correção retroativa de preço (SP2, 2.3): prévia do impacto e aplicação (200, ou 202 se virou pedido).
+  @Get(':id/retro-fix/preview')
+  @Roles(UserRole.MANAGER)
+  retroFixPreview(@Param('id', ParseUUIDPipe) id: string, @Query() query: RetroFixQueryDto) {
+    return this.productsService.retroFixPreview(id, query);
+  }
+
+  @Post(':id/retro-fix')
+  @Roles(UserRole.MANAGER)
+  async retroFix(@Param('id', ParseUUIDPipe) id: string, @Body() dto: RetroFixDto, @Res() res: Response) {
+    const result = await this.productsService.retroFix(id, dto);
+    res.status(isPendingApproval(result) ? HttpStatus.ACCEPTED : HttpStatus.OK).json(result);
+  }
+
   @Patch(':id/restore')
   @Roles(UserRole.MANAGER)
   restore(@Param('id', ParseUUIDPipe) id: string) {

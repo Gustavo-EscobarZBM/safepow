@@ -72,8 +72,12 @@ export async function seedUser(
 }
 
 export async function seedLoss(companyId: string, productId: string, reportedByUserId: string): Promise<string> {
-  const reasonId = (await adminQuery(`INSERT INTO loss_reasons ("companyId", name) VALUES ($1, 'Quebra') RETURNING id`, [companyId]))[0].id;
-  const locationId = (await adminQuery(`INSERT INTO loss_locations ("companyId", name) VALUES ($1, 'Depósito') RETURNING id`, [companyId]))[0].id;
+  // Reaproveita o motivo/local da empresa: o nome é único por empresa, e um teste pode semear várias perdas.
+  const findOrCreate = async (table: string, name: string): Promise<string> =>
+    (await adminQuery(`SELECT id FROM ${table} WHERE "companyId" = $1 AND name = $2`, [companyId, name]))[0]?.id ??
+    (await adminQuery(`INSERT INTO ${table} ("companyId", name) VALUES ($1, $2) RETURNING id`, [companyId, name]))[0].id;
+  const reasonId = await findOrCreate('loss_reasons', 'Quebra');
+  const locationId = await findOrCreate('loss_locations', 'Depósito');
   return (
     await adminQuery(
       `INSERT INTO losses ("companyId","clientGeneratedId","productId","reportedByUserId","locationId","reasonId","occurredAt","quantity")

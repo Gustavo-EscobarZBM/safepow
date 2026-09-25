@@ -9,6 +9,9 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { SearchProductsDto } from './dto/search-products.dto';
 import { SyncProductsQueryDto } from './dto/sync-products.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { RetroFixDto, RetroFixQueryDto } from './dto/retro-fix.dto';
+import { RetroFixImpact, computeRetroFixImpact, resolveRetroFixWindow } from './products-retro-fix';
+import { recordAuditEvent } from '../audit/audit-events';
 import { barcodeConflict, isBarcodeUniqueViolation } from './product-errors';
 import { Product } from './product.entity';
 import { DEFAULT_PAGE_SIZE, escapeLikePattern, ProductSearchResult } from './products-search';
@@ -43,6 +46,18 @@ export interface SyncPage {
  * gravado bata com app.current_company_id — é a segunda camada de defesa
  * descrita na Seção 1.2 do documento, não uma substituição da primeira.
  */
+/**
+ * O que precisa continuar igual entre o pedido de correção retroativa e a aprovação: as perdas da janela e o
+ * valor delas (uma perda nova ou corrigida por outro caminho invalida o pedido).
+ */
+export function retroFixSnapshot(impact: RetroFixImpact): Record<string, unknown> {
+  return {
+    affectedLosses: impact.affectedLosses,
+    currentTotal: impact.currentTotal.toFixed(2),
+    currentCostTotal: impact.currentCostTotal.toFixed(2),
+  };
+}
+
 /** Campos comparados para detectar que o produto mudou entre o pedido e a aprovação (SP2, 3.4). */
 export function productSnapshot(product: Product): Record<string, unknown> {
   return {
@@ -292,6 +307,78 @@ export class ProductsService {
     if (product.isActive) return product;
     product.isActive = true;
     return manager.save(product);
+  }
+
+  /** Prévia da correção retroativa (SP2, 2.3): quantas perdas e os totais antes/depois. */
+  async retroFixPreview(id: string, query: RetroFixQueryDto): Promise<RetroFixImpact> {
+    const manager = getTenantManager();
+    const product = await manager.findOne(Product, { where: { id } });
+    if (!product) throw new NotFoundException('Produto não encontrado.');
+    const window = resolveRetroFixWindow(query.from, query.to, new Date());
+    return computeRetroFixImpact(manager, id, window, query.unitPrice, query.costPrice);
+  }
+
+  /**
+   * Corrige o valor congelado das perdas do produto na janela (SP2, 2.3). Justificativa sempre obrigatória
+   * (DTO); com a política retro_fix ligada passa pelo portão de aprovação. Grava em modo resumo — nenhuma linha
+   * de auditoria por perda — e registra UM evento retro_fix com o resumo. Não toca no histórico de preço nem no
+   * preço atual do produto.
+   */
+  async retroFix(id: string, dto: RetroFixDto, options: GateOptions = {}): Promise<RetroFixImpact | PendingApproval> {
+    const { companyId } = getTenantContext();
+    const manager = getTenantManager();
+    const product = await manager.findOne(Product, { where: { id } });
+    if (!product) throw new NotFoundException('Produto não encontrado.');
+
+    const window = resolveRetroFixWindow(dto.from, dto.to, new Date());
+    const impact = await computeRetroFixImpact(manager, id, window, dto.unitPrice, dto.costPrice);
+
+    if (!options.skipPolicy) {
+      const policies = await loadCompanyPolicies();
+      if (policies.retro_fix.enabled) {
+        const pending = await applyApprovalGate({
+          policy: 'retro_fix',
+          entityType: 'product',
+          entityId: product.id,
+          entityLabel: product.name,
+          operation: 'retro_fix',
+          payload: {
+            from: window.from.toISOString(),
+            to: window.to.toISOString(),
+            unitPrice: dto.unitPrice,
+            costPrice: dto.costPrice,
+          },
+          snapshot: retroFixSnapshot(impact),
+          justification: dto.justification,
+        });
+        if (pending) return pending;
+      }
+    }
+
+    await manager.query(
+      `SELECT set_config('app.audit_reason', $1, true), set_config('app.audit_mode', 'summary', true)`,
+      [dto.justification],
+    );
+    await manager.query(
+      `UPDATE losses SET "unitPriceAtLoss" = $2, "unitCostAtLoss" = $3, "valuationSource" = 'recalculated'
+        WHERE "productId" = $1 AND "occurredAt" BETWEEN $4 AND $5`,
+      [id, dto.unitPrice, dto.costPrice, window.from, window.to],
+    );
+    await recordAuditEvent(manager, {
+      companyId: companyId!,
+      entityType: 'product',
+      entityId: product.id,
+      entityLabel: product.name,
+      action: 'retro_fix',
+      summary: {
+        from: window.from.toISOString(),
+        to: window.to.toISOString(),
+        unitPrice: dto.unitPrice,
+        costPrice: dto.costPrice,
+        ...impact,
+      },
+    });
+    return impact;
   }
 
   // Exclusão lógica (isActive = false): produtos já referenciados em perdas

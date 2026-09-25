@@ -24,7 +24,7 @@ export interface GateInput {
   entityType: string;
   entityId: string;
   entityLabel: string | null;
-  operation: 'update' | 'archive' | 'delete';
+  operation: 'update' | 'archive' | 'delete' | 'retro_fix';
   payload: Record<string, unknown>;
   snapshot: Record<string, unknown>;
   justification?: string;
