@@ -32,4 +32,11 @@ describe('Nav', () => {
     expect(screen.getByRole('link', { name: /perdas/i })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /dashboard/i })).not.toBeInTheDocument();
   });
+  it('mostra "Auditoria" para o gerente e não para o funcionário', () => {
+    const { unmount } = render(<Nav user={{ id: '1', name: 'Ana', role: 'manager', companyId: 'c1' }} />);
+    expect(screen.getByRole('link', { name: /Auditoria/ })).toHaveAttribute('href', '/auditoria');
+    unmount();
+    render(<Nav user={{ id: '2', name: 'João', role: 'employee', companyId: 'c1' }} />);
+    expect(screen.queryByRole('link', { name: /Auditoria/ })).not.toBeInTheDocument();
+  });
 });

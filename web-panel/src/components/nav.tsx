@@ -12,6 +12,7 @@ import {
   LogOut,
   ShieldCheck,
   UserCog,
+  History,
   type LucideIcon,
 } from 'lucide-react';
 import type { SessionUser } from '@/lib/types';
@@ -43,6 +44,7 @@ const MANAGER_LINKS: NavItem[] = [
   { href: '/losses', label: 'Perdas', icon: AlertTriangle },
   { href: '/conferencias', label: 'Conferências', icon: ShieldCheck },
   { href: '/users', label: 'Usuários', icon: Users },
+  { href: '/auditoria', label: 'Auditoria', icon: History },
 ];
 
 // Funcionário só registra perdas — sem acesso a dashboard, cadastros ou usuários.
