@@ -74,7 +74,8 @@ export const api = {
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
-  delete: <T>(path: string) => request<T>('DELETE', path),
+  // Corpo opcional: a justificativa de exclusões sensíveis (SP2) vai no corpo do DELETE.
+  delete: <T>(path: string, body?: unknown) => request<T>('DELETE', path, body),
   postForm: <T>(path: string, formData: FormData) => requestForm<T>(path, formData),
   getBlob: (path: string) => requestBlob(path),
 };

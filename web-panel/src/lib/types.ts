@@ -225,3 +225,51 @@ export interface AuditPage {
   page: number;
   pageSize: number;
 }
+
+/** Políticas de aprovação (SP2, 2.2 — backend: GET/PUT /approval-policies). */
+export type ApprovalPolicyKey = 'price_change' | 'retro_fix' | 'loss_edit' | 'archive_with_history';
+export type ApprovalMode = 'approval' | 'justification';
+
+export interface ApprovalPolicies {
+  price_change: { enabled: boolean; thresholdPercent: number };
+  retro_fix: { enabled: boolean };
+  loss_edit: { enabled: boolean };
+  archive_with_history: { enabled: boolean };
+}
+
+export interface ApprovalPoliciesState {
+  policies: ApprovalPolicies;
+  activeManagers: number;
+  mode: ApprovalMode;
+}
+
+/** Resposta 202 de uma mudança sensível que virou pedido. */
+export interface PendingApprovalResult {
+  status: 'pending';
+  changeRequestId: string;
+  policy: ApprovalPolicyKey;
+}
+
+export type ChangeRequestStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'cancelled';
+
+/** Pedido de aprovação (backend: GET /change-requests). */
+export interface ChangeRequest {
+  id: string;
+  policy: ApprovalPolicyKey;
+  entityType: string;
+  entityId: string | null;
+  entityLabel: string | null;
+  operation: string;
+  payload: Record<string, unknown>;
+  snapshot: Record<string, unknown>;
+  justification: string;
+  status: ChangeRequestStatus;
+  requestedByUserId: string | null;
+  requestedByName: string | null;
+  decidedByUserId: string | null;
+  decidedByName: string | null;
+  decidedAt: string | null;
+  decisionNote: string | null;
+  expiresAt: string;
+  createdAt: string;
+}
