@@ -118,4 +118,36 @@ describe('AuditPage', () => {
     await waitFor(() => expect(api.get).toHaveBeenLastCalledWith('audit?page=2&pageSize=50'));
     expect(await screen.findByText('Página 2 de 3')).toBeInTheDocument();
   });
+  it('resposta atrasada de uma página anterior é descartada (clicar "Próxima" rápido)', async () => {
+    let resolvePage2: (value: unknown) => void = () => {};
+    (api.get as Mock)
+      .mockResolvedValueOnce({ items: [item('p1', { entityLabel: 'Linha da página 1' })], total: 150, page: 1, pageSize: 50 })
+      .mockImplementationOnce(() => new Promise((resolve) => (resolvePage2 = resolve)))
+      .mockResolvedValueOnce({ items: [item('p3', { entityLabel: 'Linha da página 3' })], total: 150, page: 3, pageSize: 50 });
+    render(<AuditPage />);
+    await screen.findByText(/Linha da página 1/);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Próxima' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Próxima' }));
+    await screen.findByText(/Linha da página 3/);
+    resolvePage2({ items: [item('p2', { entityLabel: 'Linha da página 2' })], total: 150, page: 2, pageSize: 50 });
+
+    await waitFor(() => expect(screen.getByText('Página 3 de 3')).toBeInTheDocument());
+    expect(screen.queryByText(/Linha da página 2/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Linha da página 3/)).toBeInTheDocument();
+  });
+
+  it('erro ao carregar não deixa na tela as linhas da busca anterior', async () => {
+    (api.get as Mock)
+      .mockResolvedValueOnce({ items: [item('p1', { entityLabel: 'Linha da página 1' })], total: 150, page: 1, pageSize: 50 })
+      .mockRejectedValueOnce(new ApiError(500, 'Erro interno.'));
+    render(<AuditPage />);
+    await screen.findByText(/Linha da página 1/);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Próxima' }));
+
+    expect(await screen.findByText('Erro interno.')).toBeInTheDocument();
+    expect(screen.queryByText(/Linha da página 1/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Nenhum registro encontrado.')).not.toBeInTheDocument();
+  });
 });

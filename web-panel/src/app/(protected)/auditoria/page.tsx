@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { api, ApiError } from '@/lib/api-client';
 import {
   ACTION_LABELS,
@@ -38,21 +38,29 @@ export default function AuditPage() {
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
-  const load = useCallback(async () => {
+  useEffect(() => {
+    // Resposta de uma busca anterior (página/filtro trocados rápido) é descartada: numa auditoria, mostrar
+    // linhas que não batem com o filtro na tela seria enganoso.
+    let stale = false;
     setLoading(true);
     setError(null);
-    try {
-      setData(await api.get<AuditPageData>(`audit${buildAuditQuery({ ...filters, page, pageSize: PAGE_SIZE })}`));
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Erro ao carregar a auditoria.');
-    } finally {
-      setLoading(false);
-    }
+    api
+      .get<AuditPageData>(`audit${buildAuditQuery({ ...filters, page, pageSize: PAGE_SIZE })}`)
+      .then((result) => {
+        if (!stale) setData(result);
+      })
+      .catch((e: unknown) => {
+        if (stale) return;
+        setData(null); // não deixar na tela as linhas da busca anterior sob o rótulo da nova
+        setError(e instanceof ApiError ? e.message : 'Erro ao carregar a auditoria.');
+      })
+      .finally(() => {
+        if (!stale) setLoading(false);
+      });
+    return () => {
+      stale = true;
+    };
   }, [filters, page]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   function handleFilter(e: FormEvent) {
     e.preventDefault();
@@ -164,7 +172,7 @@ export default function AuditPage() {
                   Carregando...
                 </TableCell>
               </TableRow>
-            ) : items.length === 0 ? (
+            ) : items.length === 0 && !error ? (
               <TableRow>
                 <TableCell colSpan={6} className="py-6 text-center text-muted-foreground">
                   Nenhum registro encontrado.
