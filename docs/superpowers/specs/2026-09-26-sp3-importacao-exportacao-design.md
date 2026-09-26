@@ -321,4 +321,22 @@ merge em `main` + push. Migrations novas só entram no banco de desenvolvimento 
   aprovação, botões de exportar.
 
 ## 9. Resultados e pendências
-(preencher durante a execução)
+
+### 3.1.1 — motor: leitura, normalização e simulação (2026-09-26)
+- Entregue: migration `1700000018000-ImportsV2` (status de `import_jobs` vira varchar com CHECK; colunas do
+  assistente; `import_rows`; `import_mappings`; `import_rollback` no histórico de preço); `afterCommit` no contexto
+  de tenant; `POST /imports`, `POST /imports/:id/preview|simulate`, `GET /imports/:id`, `/rows`, `/missing`,
+  `/report.csv`; `/import-mappings`; worker `imports:simulate`.
+- Testes: backend unitário 31 suítes/281 (antes 24/166); integração 32 arquivos/236 (antes 28/191); tsc e build limpos.
+- Verificado ponta a ponta no backend local com MinIO + BullMQ reais (upload → sugestão → simulação pelo worker →
+  linhas → relatório; produto existente intacto). Migration 18000 **aplicada no `inventory_saas`** com backup
+  `pg_dump` antes (`C:\PROJETOS\SAAS-backups\`).
+- Desvios (ledger da execução): leitor xlsx próprio (zip + zlib em streaming + `saxes`) no lugar do
+  `WorkbookReader` do exceljs, que quebra de forma intermitente quando `xl/workbook.xml` vem depois das abas
+  (datas chegam como número de série — nenhum campo importado é data); sem limite de razão de compressão (só o
+  teto de 200 MB, e a descompressão é cortada no tamanho declarado); linha com erro conta como "presente" para
+  ausentes; célula vazia nunca apaga valor de registro existente (inclusive SKU); `preview` recusa job em
+  `simulating`.
+- Achado de ambiente (fora do código): `STORAGE_ACCESS_KEY`/`STORAGE_SECRET_KEY` estavam vazias no `.env` local,
+  então nenhum upload (fotos, importação antiga) funcionava em desenvolvimento; preenchidas com as credenciais do
+  MinIO do `docker-compose.yml`. O `.env` tem o bloco `STORAGE_*` duplicado (vale o último).
