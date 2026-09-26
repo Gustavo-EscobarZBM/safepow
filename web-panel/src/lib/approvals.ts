@@ -1,5 +1,6 @@
 import { ApiError } from './api-client';
-import { describeChange } from './audit';
+import { describeChange, formatDateBR } from './audit';
+import { formatBRL } from './format';
 import type { ApprovalMode, ApprovalPolicyKey, ChangeRequest, PendingApprovalResult } from './types';
 
 /** Rótulos das políticas de aprovação (SP2, 2.2). */
@@ -58,6 +59,15 @@ function sameValue(field: string, a: unknown, b: unknown): boolean {
 /** "De → para" do pedido: o que muda em relação ao registro no momento do pedido. */
 export function describeRequest(request: ChangeRequest): string[] {
   if (request.operation === 'archive') return ['Arquivar o produto'];
+  if (request.operation === 'retro_fix') {
+    const count = Number(request.snapshot.affectedLosses ?? 0);
+    const payload = request.payload as { from?: string; to?: string; unitPrice?: number; costPrice?: number };
+    return [
+      `Corrigir ${count} ${count === 1 ? 'perda' : 'perdas'} de ${formatDateBR(String(payload.from))} a ${formatDateBR(
+        String(payload.to),
+      )}: preço ${formatBRL(Number(payload.unitPrice ?? 0))}, custo ${formatBRL(Number(payload.costPrice ?? 0))}`,
+    ];
+  }
   if (request.operation === 'delete') return ['Excluir a perda'];
   return Object.entries(request.payload)
     .filter(([field, to]) => to !== undefined && !sameValue(field, request.snapshot[field], to))

@@ -7,6 +7,8 @@ import type { ImportJob, PriceHistoryEntry, Product, ProductStatusFilter } from 
 import { PriceHistoryTimeline } from '@/components/price-history-timeline';
 import { HistoryDrawer } from '@/components/history-drawer';
 import { useApprovalFlow } from '@/hooks/use-approval-flow';
+import { RetroFixDialog } from '@/components/retro-fix-dialog';
+import { PENDING_APPROVAL_NOTICE } from '@/lib/approvals';
 import { Pagination } from '@/components/pagination';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -45,6 +47,9 @@ export default function ProductsPage() {
 
   const [productToEdit, setProductToEdit] = useState<Product | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Correção retroativa de preço (SP2, 2.3).
+  const [retroFixOpen, setRetroFixOpen] = useState(false);
+  const [retroFixNotice, setRetroFixNotice] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ barcode: '', name: '', unitPrice: '', costPrice: '' });
   const [editError, setEditError] = useState<string | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -141,6 +146,7 @@ export default function ProductsPage() {
 
   function openEdit(product: Product) {
     approval.clearNotice();
+    setRetroFixNotice(null);
     setProductToEdit(product);
     setEditForm({
       barcode: product.barcode,
@@ -284,6 +290,11 @@ export default function ProductsPage() {
 
   return (
     <div className="space-y-6">
+      {retroFixNotice && (
+        <p role="status" className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
+          {retroFixNotice}
+        </p>
+      )}
       {approval.notice && (
         <p role="status" className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
           {approval.notice}
@@ -601,6 +612,9 @@ export default function ProductsPage() {
             <Button type="button" variant="outline" size="sm" onClick={() => setHistoryOpen(true)}>
               Histórico de alterações
             </Button>
+            <Button type="button" variant="outline" size="sm" onClick={() => setRetroFixOpen(true)}>
+              Corrigir valores de perdas passadas
+            </Button>
             {editError && <p className="text-sm text-destructive">{editError}</p>}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setProductToEdit(null)}>
@@ -614,6 +628,19 @@ export default function ProductsPage() {
         </DialogContent>
       </Dialog>
 
+      <RetroFixDialog
+        product={productToEdit}
+        open={retroFixOpen && !!productToEdit}
+        onOpenChange={setRetroFixOpen}
+        onApplied={(outcome, impact) => {
+          setRetroFixOpen(false);
+          setRetroFixNotice(
+            outcome === 'pending'
+              ? PENDING_APPROVAL_NOTICE
+              : `Correção aplicada a ${impact?.affectedLosses ?? 0} ${impact?.affectedLosses === 1 ? 'perda' : 'perdas'}.`,
+          );
+        }}
+      />
       <HistoryDrawer
         entityType="product"
         entityId={productToEdit?.id ?? null}

@@ -273,3 +273,12 @@ export interface ChangeRequest {
   expiresAt: string;
   createdAt: string;
 }
+
+/** Impacto da correção retroativa de preço (backend: GET /products/:id/retro-fix/preview). */
+export interface RetroFixImpact {
+  affectedLosses: number;
+  currentTotal: number;
+  newTotal: number;
+  currentCostTotal: number;
+  newCostTotal: number;
+}

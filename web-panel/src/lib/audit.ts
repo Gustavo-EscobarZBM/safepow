@@ -137,8 +137,21 @@ function describeImportSummary(summary: Record<string, unknown>): string {
 }
 
 /** Linhas legíveis de um registro: uma por alteração, ou o resumo da importação. Vazio para login. */
+/** Data sem hora, dd/mm/aaaa (período da correção retroativa). */
+export function formatDateBR(iso: string): string {
+  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function describeRetroFixSummary(summary: Record<string, unknown>): string {
+  const count = Number(summary.affectedLosses ?? 0);
+  return `${count} ${count === 1 ? 'perda' : 'perdas'} de ${formatDateBR(String(summary.from))} a ${formatDateBR(
+    String(summary.to),
+  )} corrigidas: ${formatBRL(Number(summary.currentTotal ?? 0))} → ${formatBRL(Number(summary.newTotal ?? 0))}`;
+}
+
 export function describeEntry(entry: AuditLogEntry): string[] {
   if (entry.summary && entry.entityType === 'import_job') return [describeImportSummary(entry.summary)];
+  if (entry.summary && entry.action === 'retro_fix') return [describeRetroFixSummary(entry.summary)];
   return entry.changes.map((change) => describeChange(change, entry.action));
 }
 
@@ -154,7 +167,7 @@ export interface AuditFilters {
   pageSize?: number;
 }
 
-function localDayBoundary(date: string, endOfDay: boolean): string {
+export function localDayBoundary(date: string, endOfDay: boolean): string {
   const [year, month, day] = date.split('-').map(Number);
   return endOfDay
     ? new Date(year, month - 1, day, 23, 59, 59, 999).toISOString()

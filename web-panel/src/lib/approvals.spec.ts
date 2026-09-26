@@ -99,3 +99,17 @@ describe('describeRequest', () => {
     ).toEqual(['Quantidade: 2 → 3']);
   });
 });
+
+describe('describeRequest — correção retroativa (SP2, 2.3)', () => {
+  it('diz quantas perdas, o período e os valores novos', () => {
+    const [line] = describeRequest(
+      request({
+        operation: 'retro_fix',
+        policy: 'retro_fix',
+        payload: { from: '2026-09-01T03:00:00.000Z', to: '2026-09-21T02:59:59.999Z', unitPrice: 12, costPrice: 8 },
+        snapshot: { affectedLosses: 2, currentTotal: '6.00', currentCostTotal: '4.00' },
+      }),
+    );
+    expect(line).toMatch(/^Corrigir 2 perdas de \d{2}\/\d{2}\/2026 a \d{2}\/\d{2}\/2026: preço R\$\s?12,00, custo R\$\s?8,00$/);
+  });
+});

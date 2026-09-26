@@ -353,3 +353,23 @@ describe('ProductsPage — justificativa e aprovação (SP2, 2.2)', () => {
     expect(await screen.findByText('Enviado para aprovação de outro gerente.')).toBeInTheDocument();
   });
 });
+
+describe('ProductsPage — correção retroativa (SP2, 2.3)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (api.get as Mock).mockImplementation(async (path: string) => {
+      if (path.startsWith('products/search')) return searchResult(products);
+      if (path.endsWith('/price-history')) return history(12, 'h-a');
+      throw new Error(`unexpected path: ${path}`);
+    });
+  });
+
+  it('no diálogo de edição, "Corrigir valores de perdas passadas" abre o diálogo da correção', async () => {
+    render(<ProductsPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Editar Arroz 5kg' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Corrigir valores de perdas passadas' }));
+
+    expect(await screen.findByRole('heading', { name: 'Corrigir valores de perdas passadas' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Preço unitário (R$)')).toHaveValue(12);
+  });
+});

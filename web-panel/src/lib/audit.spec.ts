@@ -123,3 +123,23 @@ describe('buildAuditQuery', () => {
     });
   });
 });
+
+describe('describeEntry — correção retroativa (SP2, 2.3)', () => {
+  it('resume a correção numa linha', () => {
+    const [line] = describeEntry(
+      entry({
+        action: 'retro_fix',
+        summary: {
+          from: '2026-09-01T03:00:00.000Z',
+          to: '2026-09-21T02:59:59.999Z',
+          unitPrice: 12,
+          costPrice: 8,
+          affectedLosses: 2,
+          currentTotal: 6,
+          newTotal: 60,
+        },
+      }),
+    );
+    expect(line).toMatch(/^2 perdas de \d{2}\/\d{2}\/2026 a \d{2}\/\d{2}\/2026 corrigidas: R\$\s?6,00 → R\$\s?60,00$/);
+  });
+});
