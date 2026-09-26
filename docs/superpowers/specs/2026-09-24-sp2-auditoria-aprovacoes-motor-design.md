@@ -337,6 +337,13 @@ registrada na auditoria.
 - **Testes:** cada bloco com vitest; as telas de Motivos/Locais mantêm os testes de comportamento atuais
   verdes (prova de "sem mudança visível").
 
+**Resultado da 2.4 (2026-09-26):** blocos `ResourceTable`, `ResourceFormDialog` e `ArchiveDialog` em
+`web-panel/src/components/resources/` (mais `HistoryDrawer` e `JustificationDialog`); Motivo e Local da Perda compõem
+o `SimpleCatalogPage` sem mudança visível — provada por testes de caracterização escritos antes da troca
+(`web-panel/src/test/catalog-page-behavior.tsx`) — e ganharam o botão Histórico; Produtos usa o `ArchiveDialog`;
+`CatalogManager` removido. Busca/paginação no `ResourceTable` e o modo reativar do `ArchiveDialog` ficam para quando
+uma tela precisar (SP4/SP5). Verificada no navegador. **SP2 concluído.**
+
 **Pronto quando:** Motivos e Locais usam os blocos com o mesmo comportamento de antes e ganharam o
 Histórico; os blocos estão prontos para as telas novas do SP4/SP5.
 
