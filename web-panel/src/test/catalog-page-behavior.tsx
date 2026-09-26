@@ -15,9 +15,17 @@ export interface CatalogPageConfig {
   title: string;
   description: string;
   itemLabelLower: string; // "motivo" | "local"
+  auditEntityType: 'loss_reason' | 'loss_location';
 }
 
-export function describeCatalogPageBehavior({ Page, resource, title, description, itemLabelLower }: CatalogPageConfig) {
+export function describeCatalogPageBehavior({
+  Page,
+  resource,
+  title,
+  description,
+  itemLabelLower,
+  auditEntityType,
+}: CatalogPageConfig) {
   const ROWS = [
     { id: 'r1', name: 'Quebra' },
     { id: 'r2', name: 'Furto' },
@@ -137,6 +145,29 @@ export function describeCatalogPageBehavior({ Page, resource, title, description
       await userEvent.click(within(rowOf('Furto')).getByRole('button', { name: /Excluir/ }));
       expect(await screen.findByText('Em uso em perdas.')).toBeInTheDocument();
       expect(screen.getByText('Furto')).toBeInTheDocument();
+    });
+
+    // Única mudança visível da 2.4: o botão Histórico por linha.
+    it('"Histórico" da linha abre a gaveta com a trilha daquele registro', async () => {
+      render(<Page />);
+      await screen.findByText('Quebra');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Histórico de Quebra' }));
+
+      expect(await screen.findByText('Histórico — Quebra')).toBeInTheDocument();
+      expect(api.get).toHaveBeenCalledWith(`audit?entityType=${auditEntityType}&entityId=r1&pageSize=100`);
+    });
+
+    it('depois de excluir, o Histórico da linha some junto com ela', async () => {
+      (api.get as Mock).mockResolvedValueOnce(ROWS).mockResolvedValueOnce([ROWS[1]]);
+      (api.delete as Mock).mockResolvedValue(undefined);
+      render(<Page />);
+      await screen.findByText('Quebra');
+
+      await userEvent.click(within(rowOf('Quebra')).getByRole('button', { name: /Excluir/ }));
+
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Histórico de Quebra' })).not.toBeInTheDocument());
+      expect(screen.getByRole('button', { name: 'Histórico de Furto' })).toBeInTheDocument();
     });
   });
 }

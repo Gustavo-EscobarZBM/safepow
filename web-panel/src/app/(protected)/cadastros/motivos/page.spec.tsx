@@ -12,5 +12,6 @@ describeCatalogPageBehavior({
   resource: 'loss-reasons',
   title: 'Motivo da Perda',
   description: 'Opções de motivo disponíveis ao registrar uma perda. Um motivo já usado em alguma perda não pode ser excluído.',
+  auditEntityType: 'loss_reason',
   itemLabelLower: 'motivo',
 });
