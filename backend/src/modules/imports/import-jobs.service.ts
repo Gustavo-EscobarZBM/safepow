@@ -1,16 +1,19 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Queue } from 'bullmq';
-import { createHash } from 'crypto';
-import { getTenantContext, getTenantManager } from '../../common/tenant/tenant-storage';
+import { createHash, randomUUID } from 'crypto';
+import { afterCommit, getTenantContext, getTenantManager } from '../../common/tenant/tenant-storage';
 import { StorageService } from '../uploads/storage.service';
 import { assertSafeZip, decodeCsv, detectDelimiter, detectFormat, ImportFileError } from './engine/file-sniff';
 import { headerFingerprint, suggestMapping } from './engine/mapping';
 import { listSheets, peekTable, TableSource } from './engine/sheet-reader';
-import { ImportResourceHandler } from './engine/types';
+import { ImportResourceHandler, MissingPage } from './engine/types';
+import { ListImportRowsDto, PageQueryDto } from './dto/list-import-rows.dto';
+import { SimulateImportDto } from './dto/simulate-import.dto';
+import { ImportRow } from './import-row.entity';
 import { getImportHandler } from './handlers';
 import { ImportJob, ImportJobStatus } from './import-job.entity';
-import { ImportMappingsService } from './import-mappings.service';
+import { assertKnownFields, ImportMappingsService, mappingInvalid } from './import-mappings.service';
 
 export const IMPORTS_QUEUE = 'imports';
 
@@ -19,6 +22,8 @@ export interface ImportQueueData {
   companyId: string;
   runId: string;
 }
+
+export type ImportRowView = Pick<ImportRow, 'rowNumber' | 'key' | 'action' | 'normalized' | 'diff' | 'warnings' | 'errors' | 'raw'>;
 
 export interface PreviewResult {
   headers: string[];
@@ -135,6 +140,107 @@ export class ImportJobsService {
     job.headers = preview.headers;
     await getTenantManager().save(job);
     return preview;
+  }
+
+  /** Valida o mapeamento e enfileira a simulação (só depois do commit — spec 2.4, "enfileirar só depois do commit"). */
+  async simulate(id: string, dto: SimulateImportDto): Promise<ImportJob> {
+    const job = await this.findOne(id);
+    this.assertEditable(job, true);
+    const handler = getImportHandler(job.resource);
+    this.validateMapping(handler, dto);
+
+    const sheetName = job.format === 'csv' ? null : (dto.sheetName ?? job.sheetName);
+    let headers = job.headers ?? [];
+    if (sheetName !== job.sheetName || !job.headers) {
+      try {
+        headers = (await peekTable(await this.storage.downloadBuffer(job.storageKey), {
+          format: job.format ?? 'xlsx',
+          sheetName,
+          delimiter: job.delimiter,
+        }, 0)).headers;
+      } catch (error) {
+        throw toHttpError(error);
+      }
+    }
+    for (const header of Object.values(dto.mapping)) {
+      if (!headers.includes(header)) throw mappingInvalid(`A coluna "${header}" não existe na planilha.`);
+    }
+
+    if (dto.saveMappingAs) {
+      await this.mappings.save({ resource: job.resource, name: dto.saveMappingAs, mapping: dto.mapping, headers });
+    }
+
+    const { companyId } = getTenantContext();
+    const runId = randomUUID();
+    Object.assign(job, {
+      sheetName,
+      headers,
+      mapping: dto.mapping,
+      options: { updateFields: dto.updateFields, runId },
+      status: ImportJobStatus.SIMULATING,
+      summary: null,
+      errorReport: null,
+      errorReportKey: null,
+      simulatedAt: null,
+      lastError: null,
+      totalRows: null,
+      errorCount: 0,
+    });
+    await getTenantManager().save(job);
+    afterCommit(async () => {
+      await this.queue.add('simulate', { jobId: job.id, companyId: companyId!, runId }, { removeOnComplete: 1000, removeOnFail: 1000 });
+    });
+    return job;
+  }
+
+  async listRows(id: string, query: ListImportRowsDto): Promise<{ items: ImportRowView[]; total: number }> {
+    await this.findOne(id);
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 50;
+    const qb = getTenantManager()
+      .createQueryBuilder(ImportRow, 'r')
+      .select(['r.rowNumber', 'r.key', 'r.action', 'r.normalized', 'r.diff', 'r.warnings', 'r.errors', 'r.raw'])
+      .where('r.jobId = :id', { id });
+    if (query.action === 'warnings') qb.andWhere('cardinality(r.warnings) > 0');
+    else if (query.action) qb.andWhere('r.action = :action', { action: query.action });
+    const [items, total] = await qb
+      .orderBy('r.rowNumber', 'ASC', 'NULLS LAST')
+      .addOrderBy('r.id', 'ASC')
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+    return { items, total };
+  }
+
+  async listMissing(id: string, query: PageQueryDto): Promise<MissingPage> {
+    const job = await this.findOne(id);
+    if (!job.simulatedAt) throw invalidState('Simule a importação primeiro.');
+    return getImportHandler(job.resource).listMissing(getTenantManager(), id, query.page ?? 1, query.limit ?? 50);
+  }
+
+  async reportCsv(id: string): Promise<{ buffer: Buffer; fileName: string }> {
+    const job = await this.findOne(id);
+    if (!job.errorReportKey) throw new NotFoundException('Relatório ainda não disponível.');
+    const base = job.fileName.replace(/\.[^.]+$/, '');
+    return { buffer: await this.storage.downloadBuffer(job.errorReportKey), fileName: `relatorio-${base}.csv` };
+  }
+
+  private validateMapping(handler: ImportResourceHandler, dto: SimulateImportDto): void {
+    assertKnownFields(handler, dto.mapping);
+    const required = handler.fields.filter((f) => f.required);
+    if (required.some((f) => !dto.mapping[f.key])) {
+      throw mappingInvalid(`Mapeie as colunas obrigatórias: ${required.map((f) => f.label).join(' e ')}.`);
+    }
+    const used = new Set<string>();
+    for (const header of Object.values(dto.mapping)) {
+      if (used.has(header)) throw mappingInvalid(`A coluna "${header}" foi usada em mais de um campo.`);
+      used.add(header);
+    }
+    for (const field of dto.updateFields) {
+      const def = handler.fields.find((f) => f.key === field);
+      if (def && !def.updatable) throw mappingInvalid(`O campo "${field}" não pode ser atualizado.`);
+      if (!dto.mapping[field]) throw mappingInvalid(`O campo "${field}" não está mapeado.`);
+    }
   }
 
   async findOne(id: string): Promise<ImportJob> {

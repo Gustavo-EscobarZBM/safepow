@@ -2,6 +2,10 @@ import {
   Body,
   Controller,
   Get,
+  Header,
+  HttpCode,
+  Query,
+  StreamableFile,
   Param,
   ParseUUIDPipe,
   Post,
@@ -15,6 +19,8 @@ import { Roles, RolesGuard } from '../../common/guards/roles.guard';
 import { SubscriptionGuard } from '../../common/guards/subscription.guard';
 import { UserRole } from '../users/user.entity';
 import { PreviewImportDto } from './dto/import-mapping.dto';
+import { ListImportRowsDto, PageQueryDto } from './dto/list-import-rows.dto';
+import { SimulateImportDto } from './dto/simulate-import.dto';
 import { ImportJobsService } from './import-jobs.service';
 
 const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;
@@ -40,5 +46,28 @@ export class ImportJobsController {
   @Post(':id/preview')
   preview(@Param('id', ParseUUIDPipe) id: string, @Body() dto: PreviewImportDto) {
     return this.imports.preview(id, dto.sheetName);
+  }
+
+  @Post(':id/simulate')
+  @HttpCode(202)
+  async simulate(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SimulateImportDto) {
+    return { job: await this.imports.simulate(id, dto) };
+  }
+
+  @Get(':id/rows')
+  rows(@Param('id', ParseUUIDPipe) id: string, @Query() query: ListImportRowsDto) {
+    return this.imports.listRows(id, query);
+  }
+
+  @Get(':id/missing')
+  missing(@Param('id', ParseUUIDPipe) id: string, @Query() query: PageQueryDto) {
+    return this.imports.listMissing(id, query);
+  }
+
+  @Get(':id/report.csv')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  async report(@Param('id', ParseUUIDPipe) id: string) {
+    const { buffer, fileName } = await this.imports.reportCsv(id);
+    return new StreamableFile(buffer, { disposition: `attachment; filename="${encodeURIComponent(fileName)}"` });
   }
 }

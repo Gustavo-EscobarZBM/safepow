@@ -91,11 +91,14 @@ function plan(values: Record<string, unknown>, existing: ExistingProduct | undef
   };
 }
 
-/** Produtos ativos cujo código não veio (sem erro) na planilha do job. */
+/**
+ * Produtos ativos cujo código não aparece na planilha do job. Linha com erro também conta como "veio": arquivar
+ * um produto só porque a linha dele tinha um preço inválido seria destrutivo.
+ */
 const MISSING_FROM = `
   FROM products p
  WHERE p."isActive"
-   AND NOT EXISTS (SELECT 1 FROM import_rows r WHERE r."jobId" = $1 AND r.key = p.barcode AND r.action <> 'error')`;
+   AND NOT EXISTS (SELECT 1 FROM import_rows r WHERE r."jobId" = $1 AND r.key = p.barcode)`;
 
 export const productsImportHandler: ImportResourceHandler<ExistingProduct> = {
   resource: 'products',

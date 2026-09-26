@@ -9,6 +9,7 @@ import { ImportJobsController } from './import-jobs.controller';
 import { IMPORTS_QUEUE, ImportJobsService } from './import-jobs.service';
 import { ImportMappingsController } from './import-mappings.controller';
 import { ImportMappingsService } from './import-mappings.service';
+import { ImportsQueueProcessor } from './imports-queue.processor';
 import { ImportsController } from './imports.controller';
 import { ImportsProcessor } from './imports.processor';
 import { ImportsService, PRODUCTS_IMPORT_QUEUE } from './imports.service';
@@ -20,6 +21,6 @@ import { ImportsService, PRODUCTS_IMPORT_QUEUE } from './imports.service';
     UploadsModule,
   ],
   controllers: [ImportsController, ImportJobsController, ImportMappingsController],
-  providers: [ImportsService, ImportsProcessor, ImportJobsService, ImportMappingsService],
+  providers: [ImportsService, ImportsProcessor, ImportJobsService, ImportMappingsService, ImportsQueueProcessor],
 })
 export class ImportsModule {}
