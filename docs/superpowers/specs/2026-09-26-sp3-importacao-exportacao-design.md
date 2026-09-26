@@ -340,3 +340,13 @@ merge em `main` + push. Migrations novas só entram no banco de desenvolvimento 
 - Achado de ambiente (fora do código): `STORAGE_ACCESS_KEY`/`STORAGE_SECRET_KEY` estavam vazias no `.env` local,
   então nenhum upload (fotos, importação antiga) funcionava em desenvolvimento; preenchidas com as credenciais do
   MinIO do `docker-compose.yml`. O `.env` tem o bloco `STORAGE_*` duplicado (vale o último).
+- Revisão final (subagente opus): 1 crítico e 3 importantes corrigidos com TDD — zip bomb via `sharedStrings`
+  (agora em streaming, teto de 50 MB, razão > 100 por entrada acima de 10 MB); mapeamento salvo traduzido para a
+  grafia dos cabeçalhos do arquivo novo; EAN em notação científica do CSV do Excel vira erro; `attemptId` contra
+  reentrega da mesma mensagem. Totais finais: unitário 31/288, integração 32/238.
+- **Menores abertos da 3.1.1:** XML malformado vira 500 no upload; aspas simples/CDATA no xlsx lidos como vazio;
+  `t="d"`/valor não numérico viram "NaN"; `AMBIGUOUS_DECIMAL` falso em célula numérica; número de linha do CSV
+  desloca com quebra de linha dentro de aspas; delimitador pela 1ª linha física; jobs do fluxo antigo aceitos por
+  preview/simulate; linhas da simulação anterior visíveis durante a nova; com Redis fora o simulate espera minutos;
+  relatório CSV montado inteiro em memória; `Content-Disposition` com `%20`; cabeçalhos repetidos/vazios não
+  mapeáveis; ordem do `suggestMapping` ≠ spec (sem efeito hoje); objetos órfãos no storage.
