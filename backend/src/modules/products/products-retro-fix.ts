@@ -21,7 +21,9 @@ export interface RetroFixImpact {
 /** Janela [from, to ?? agora]; limita o tamanho da transação a 366 dias. */
 export function resolveRetroFixWindow(from: string, to: string | undefined, now: Date): RetroFixWindow {
   const start = new Date(from);
-  const end = to ? new Date(to) : now;
+  // "Até hoje" chega do painel como o fim do dia (futuro): limitar a agora evita que perdas registradas ainda
+  // hoje entrem na janela e façam um pedido de aprovação expirar sem motivo.
+  const end = to && new Date(to).getTime() < now.getTime() ? new Date(to) : now;
   if (start.getTime() > now.getTime()) throw new BadRequestException('A data inicial não pode ser futura.');
   if (end.getTime() < start.getTime()) throw new BadRequestException('A data final não pode ser anterior à inicial.');
   if (end.getTime() - start.getTime() > RETRO_FIX_MAX_DAYS * DAY_MS) {

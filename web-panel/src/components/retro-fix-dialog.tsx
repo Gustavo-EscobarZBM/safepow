@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '@/lib/api-client';
 import { isPendingApproval } from '@/lib/approvals';
 import { localDayBoundary } from '@/lib/audit';
@@ -40,6 +40,8 @@ export function RetroFixDialog({ product, open, onOpenChange, onApplied }: Retro
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Cada prévia pedida (e cada mudança de parâmetro) avança o contador: resposta de uma prévia antiga é descartada.
+  const previewSeq = useRef(0);
 
   useEffect(() => {
     if (!open || !product) return;
@@ -56,7 +58,9 @@ export function RetroFixDialog({ product, open, onOpenChange, onApplied }: Retro
   function changeParam(setter: (value: string) => void) {
     return (value: string) => {
       setter(value);
+      previewSeq.current += 1;
       setImpact(null);
+      setLoadingPreview(false);
     };
   }
 
@@ -71,17 +75,19 @@ export function RetroFixDialog({ product, open, onOpenChange, onApplied }: Retro
 
   async function handlePreview() {
     if (!product) return;
+    const seq = ++previewSeq.current;
     setLoadingPreview(true);
     setError(null);
     try {
       const query = new URLSearchParams(
         Object.entries(params()).map(([key, value]) => [key, String(value)]),
       ).toString();
-      setImpact(await api.get<RetroFixImpact>(`products/${product.id}/retro-fix/preview?${query}`));
+      const result = await api.get<RetroFixImpact>(`products/${product.id}/retro-fix/preview?${query}`);
+      if (seq === previewSeq.current) setImpact(result);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Erro ao calcular o impacto.');
+      if (seq === previewSeq.current) setError(e instanceof ApiError ? e.message : 'Erro ao calcular o impacto.');
     } finally {
-      setLoadingPreview(false);
+      if (seq === previewSeq.current) setLoadingPreview(false);
     }
   }
 

@@ -29,4 +29,7 @@ describe('resolveRetroFixWindow', () => {
     );
     expect(resolveRetroFixWindow('2025-09-24T15:00:00Z', undefined, now).from).toEqual(new Date('2025-09-24T15:00:00Z'));
   });
+  it('"to" no futuro é limitado a agora (a janela não inclui perdas que ainda vão acontecer)', () => {
+    expect(resolveRetroFixWindow('2026-09-01T00:00:00Z', '2026-09-25T23:59:59Z', now).to).toEqual(now);
+  });
 });

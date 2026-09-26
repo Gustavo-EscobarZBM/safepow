@@ -107,4 +107,18 @@ describe('RetroFixDialog', () => {
 
     expect(await screen.findByText('A janela máxima é de 366 dias por correção.')).toBeInTheDocument();
   });
+  it('prévia que chega depois de mudar o preço é descartada (não libera aplicar com números velhos)', async () => {
+    let resolvePreview: (value: unknown) => void = () => {};
+    (api.get as Mock).mockImplementation(() => new Promise((resolve) => (resolvePreview = resolve)));
+    renderDialog();
+    await fillPeriodAndPreview();
+    await userEvent.type(screen.getByLabelText('Justificativa'), 'Preço digitado errado');
+
+    await userEvent.type(screen.getByLabelText('Preço unitário (R$)'), '5');
+    resolvePreview(IMPACT);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByText(/2 perdas/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Aplicar correção' })).toBeDisabled();
+  });
 });
