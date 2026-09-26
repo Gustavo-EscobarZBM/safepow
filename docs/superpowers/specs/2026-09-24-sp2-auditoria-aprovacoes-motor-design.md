@@ -310,7 +310,9 @@ modo resumo com um único evento `retro_fix` no produto e `reason`; histórico d
 portão `retro_fix` (2+ gerentes ⇒ pedido; aprovação reaplica e expira se a janela mudou — perda nova ou valor
 diferente); diálogo "Corrigir valores de perdas passadas" na edição do produto com prévia obrigatória (mudar
 datas/valores invalida a prévia). Verificada no navegador com o banco de desenvolvimento (correção com os mesmos
-valores: só a origem passou a `recalculated`). Sem migration.
+valores: só a origem passou a `recalculated`). Sem migration. Revisão final: "Até" no futuro é limitado a agora; o
+diálogo descarta prévia atrasada. **Limitação conhecida:** perda registrada ou editada depois, dentro de uma janela já
+corrigida, volta a pegar o preço do histórico (que continua com o valor errado do período, por ser append-only).
 
 **Pronto quando:** o gerente corrige o valor das perdas de um período com prévia do impacto, justificativa
 e (se a política pedir) aprovação, e o dashboard passa a mostrar o valor corrigido, com a correção
