@@ -175,9 +175,11 @@ pedido se ainda `pending_approval` com o mesmo `simulatedAt`; aplicar = status `
 vencimento e cancelamento do pedido ⇒ o job vira `cancelled` (recusa/cancelamento no próprio serviço; vencimento
 por reconciliação preguiçosa ao ler o job ou listar importações).
 
-**Enfileirar dentro da transação:** o worker pode começar antes do commit. Todo worker relê o job e, se o
-status ainda não é o esperado (`applying`/`simulating`/`rolling_back`), lança um erro "não pronto" e o BullMQ
-tenta de novo (`attempts: 5`, backoff exponencial de 1 s). Status diferente e terminal ⇒ termina sem fazer nada.
+**Enfileirar só depois do commit:** o contexto de tenant ganha `afterCommit(fn)`; o `TenantContextMiddleware`
+roda os callbacks depois do commit bem-sucedido e antes de entregar a resposta (falha no callback é registrada
+no log, não derruba a resposta). Todo `add` na fila de importação passa por ele. Cada execução leva um `runId`
+gravado em `options.runId`; o worker ignora a mensagem se o `runId` ou o status do job não baterem (mensagem
+velha de uma simulação substituída). Job que ficou `simulating` sem mensagem (Redis fora) pode ser simulado de novo.
 
 ### 2.5 Gravação — worker `imports:apply`
 Contexto por lote: `app.current_company_id`, `app.current_user_id` = autor do job (o histórico de preço
