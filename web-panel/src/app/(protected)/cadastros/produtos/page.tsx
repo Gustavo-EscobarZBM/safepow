@@ -8,6 +8,7 @@ import { PriceHistoryTimeline } from '@/components/price-history-timeline';
 import { HistoryDrawer } from '@/components/history-drawer';
 import { useApprovalFlow } from '@/hooks/use-approval-flow';
 import { RetroFixDialog } from '@/components/retro-fix-dialog';
+import { ArchiveDialog } from '@/components/resources/archive-dialog';
 import { PENDING_APPROVAL_NOTICE } from '@/lib/approvals';
 import { Pagination } from '@/components/pagination';
 import { Badge } from '@/components/ui/badge';
@@ -649,26 +650,20 @@ export default function ProductsPage() {
         onOpenChange={setHistoryOpen}
       />
 
-      <Dialog open={!!productToArchive} onOpenChange={(open) => !open && setProductToArchive(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Arquivar produto</DialogTitle>
-            <DialogDescription>
-              <strong>{productToArchive?.name}</strong> deixará de aparecer no app dos funcionários. O
-              histórico de perdas registradas com ele é mantido, e você pode reativá-lo depois na aba
-              Arquivados.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setProductToArchive(null)} disabled={archiving}>
-              Cancelar
-            </Button>
-            <Button variant="destructive" onClick={handleArchiveConfirmed} disabled={archiving}>
-              {archiving ? 'Arquivando...' : 'Arquivar'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ArchiveDialog
+        open={!!productToArchive}
+        title="Arquivar produto"
+        description={
+          <>
+            <strong>{productToArchive?.name}</strong> deixará de aparecer no app dos funcionários. O
+            histórico de perdas registradas com ele é mantido, e você pode reativá-lo depois na aba
+            Arquivados.
+          </>
+        }
+        confirming={archiving}
+        onConfirm={handleArchiveConfirmed}
+        onOpenChange={(open) => !open && setProductToArchive(null)}
+      />
     </div>
   );
 }
