@@ -7,7 +7,9 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { UserRole } from '../../modules/users/user.entity';
 import { adminQuery, appDataSource, closeTestConnections, seedCompany, truncateAll } from '../../test-utils/test-db';
 import { TenantContextMiddleware } from './tenant-context.middleware';
-import { getTenantContext, getTenantManager } from './tenant-storage';
+import { afterCommit, getTenantContext, getTenantManager } from './tenant-storage';
+
+const afterCommitCalls: { barcode: string; visible: boolean; responded: boolean }[] = [];
 
 const JWT_SECRET = 'segredo-somente-de-teste';
 const COMMIT_DELAY_MS = 300;
@@ -100,6 +102,19 @@ async function startServer(dataSource: DataSource): Promise<TestServer> {
   app.post('/created', (_req, res) => void insertProductAndRespond(res, 201, 'F16-COMMIT'));
   app.post('/conflict', (_req, res) => void insertProductAndRespond(res, 409, 'F16-ROLLBACK'));
   app.post('/double', (_req, res) => void insertProductAndRespondTwice(res, 'F16-DOUBLE'));
+  // afterCommit (SP3): o callback registra se já enxerga, por outra conexão, a linha gravada na requisição.
+  app.post('/after-commit/:status', (req, res) => {
+    const status = Number(req.params.status);
+    const barcode = `AC-${status}`;
+    afterCommit(async () => {
+      const rows = await adminQuery(`SELECT 1 FROM products WHERE barcode = $1`, [barcode]);
+      afterCommitCalls.push({ barcode, visible: rows.length === 1, responded: res.writableEnded });
+    });
+    afterCommit(() => {
+      throw new Error('callback que falha não derruba a resposta');
+    });
+    void insertProductAndRespond(res, status, barcode);
+  });
   app.post('/user-setting', (_req, res) => {
     void getTenantManager()
       .query(`SELECT current_setting('app.current_user_id', true) AS value`)
@@ -334,5 +349,43 @@ describe('TenantContextMiddleware — contexto de auditoria (SP2)', () => {
       [productId],
     );
     expect(audit).toEqual({ source: 'web', actorUserId: managerId, requestId: headers['x-request-id'] });
+  });
+});
+
+describe('TenantContextMiddleware — afterCommit (SP3)', () => {
+  let token: string;
+  let server: TestServer;
+
+  beforeAll(async () => {
+    server = await startServer(await appDataSource());
+  });
+  afterAll(async () => {
+    await server.close();
+    await closeTestConnections();
+  });
+  beforeEach(async () => {
+    await truncateAll();
+    afterCommitCalls.length = 0;
+    const companyId = await seedCompany('Empresa afterCommit');
+    token = await new JwtService({ secret: JWT_SECRET }).signAsync({
+      sub: '00000000-0000-4000-8000-000000000001',
+      role: UserRole.MANAGER,
+      companyId,
+    });
+  });
+
+  it('resposta 2xx: o callback roda depois do commit e antes de a resposta sair; callback que falha não derruba', async () => {
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { status } = await post(server.baseUrl, '/after-commit/201', token);
+    expect(status).toBe(201);
+    expect(afterCommitCalls).toEqual([{ barcode: 'AC-201', visible: true, responded: false }]);
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it('resposta de erro: o callback não roda', async () => {
+    const { status } = await post(server.baseUrl, '/after-commit/409', token);
+    expect(status).toBe(409);
+    expect(afterCommitCalls).toEqual([]);
   });
 });

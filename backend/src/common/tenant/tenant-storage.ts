@@ -17,6 +17,9 @@ export interface TenantContext {
   // Contexto da auditoria (SP2) — o mesmo gravado nas variáveis de sessão da transação acima; guardado aqui
   // para ser copiado para transações próprias (ver applyRequestAuditContext).
   audit?: { source: string; requestId: string; ip: string };
+  // Callbacks que o TenantContextMiddleware roda depois do commit bem-sucedido (SP3): enfileirar um job que
+  // lê o que esta requisição gravou só pode acontecer depois de a gravação estar visível.
+  afterCommit?: Array<() => Promise<void> | void>;
 }
 
 export const tenantStorage = new AsyncLocalStorage<TenantContext>();
@@ -35,4 +38,10 @@ export function getTenantContext(): TenantContext {
 /** Atalho para o EntityManager com RLS já configurado para o tenant da requisição. */
 export function getTenantManager(): EntityManager {
   return getTenantContext().manager;
+}
+
+/** Agenda `fn` para depois do commit da transação da requisição atual (não roda se ela for desfeita). */
+export function afterCommit(fn: () => Promise<void> | void): void {
+  const ctx = getTenantContext();
+  (ctx.afterCommit ??= []).push(fn);
 }

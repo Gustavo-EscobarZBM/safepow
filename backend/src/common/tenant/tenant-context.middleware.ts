@@ -4,7 +4,7 @@ import { isIP } from 'net';
 import { JwtService } from '@nestjs/jwt';
 import { NextFunction, Request, Response } from 'express';
 import { DataSource, QueryRunner } from 'typeorm';
-import { tenantStorage } from './tenant-storage';
+import { TenantContext, tenantStorage } from './tenant-storage';
 import { UserRole } from '../../modules/users/user.entity';
 import { auditSourceFromUserAgent } from '../../modules/audit/audit-events';
 
@@ -78,7 +78,7 @@ export class TenantContextMiddleware implements NestMiddleware {
         [auditSourceFromUserAgent(req.headers['user-agent']), requestId, clientIp],
       );
 
-      const context = {
+      const context: TenantContext = {
         userId: payload?.sub ?? '',
         role: payload?.role ?? UserRole.EMPLOYEE,
         companyId: payload?.companyId ?? null,
@@ -86,7 +86,7 @@ export class TenantContextMiddleware implements NestMiddleware {
         audit: { source: auditSourceFromUserAgent(req.headers['user-agent']), requestId, ip: clientIp },
       };
 
-      this.finishTransactionBeforeResponse(res, queryRunner);
+      this.finishTransactionBeforeResponse(res, queryRunner, context);
 
       tenantStorage.run(context, () => next());
     } catch (err) {
@@ -105,7 +105,7 @@ export class TenantContextMiddleware implements NestMiddleware {
    * Todo caminho de resposta do Express/Nest (json, send, download, stream com pipe)
    * termina em `res.end`, por isso é ali que a transação é finalizada.
    */
-  private finishTransactionBeforeResponse(res: Response, queryRunner: QueryRunner): void {
+  private finishTransactionBeforeResponse(res: Response, queryRunner: QueryRunner, context: TenantContext): void {
     const originalEnd = res.end.bind(res) as unknown as (...args: unknown[]) => Response;
     let endRequested = false;
 
@@ -122,8 +122,10 @@ export class TenantContextMiddleware implements NestMiddleware {
       const headersAlreadySent = res.headersSent;
       Object.defineProperty(res, 'headersSent', { configurable: true, get: () => true });
 
-      this.finishTransaction(queryRunner, res.statusCode >= 200 && res.statusCode < 400).then(
-        () => {
+      const commit = res.statusCode >= 200 && res.statusCode < 400;
+      this.finishTransaction(queryRunner, commit).then(
+        async () => {
+          if (commit) await this.runAfterCommit(context);
           originalEnd(...args);
         },
         () => {
@@ -146,6 +148,17 @@ export class TenantContextMiddleware implements NestMiddleware {
       });
       return res;
     }) as Response['end'];
+  }
+
+  /** Callbacks de `afterCommit`, em ordem; um que falha é só registrado — a gravação já aconteceu. */
+  private async runAfterCommit(context: TenantContext): Promise<void> {
+    for (const callback of context.afterCommit ?? []) {
+      try {
+        await callback();
+      } catch (error) {
+        this.logger.error(`Falha num callback pós-commit: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
   }
 
   private async finishTransaction(queryRunner: QueryRunner, commit: boolean): Promise<void> {

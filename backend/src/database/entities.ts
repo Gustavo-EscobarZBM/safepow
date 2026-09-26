@@ -1,6 +1,8 @@
 import { Company } from '../modules/companies/company.entity';
 import { CompanyMonthlyRevenue } from '../modules/company-revenue/company-monthly-revenue.entity';
 import { ImportJob } from '../modules/imports/import-job.entity';
+import { ImportMapping } from '../modules/imports/import-mapping.entity';
+import { ImportRow } from '../modules/imports/import-row.entity';
 import { Loss } from '../modules/losses/loss.entity';
 import { LossLocation } from '../modules/loss-locations/loss-location.entity';
 import { LossReason } from '../modules/loss-reasons/loss-reason.entity';
@@ -29,4 +31,6 @@ export const ENTITIES = [
   ProductPriceHistory,
   AuditLog,
   ChangeRequest,
+  ImportRow,
+  ImportMapping,
 ];
