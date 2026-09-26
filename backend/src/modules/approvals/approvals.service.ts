@@ -4,7 +4,8 @@ import { recordAuditEvent } from '../audit/audit-events';
 import { Loss } from '../losses/loss.entity';
 import { LossesService, lossSnapshot } from '../losses/losses.service';
 import { Product } from '../products/product.entity';
-import { ProductsService, productSnapshot } from '../products/products.service';
+import { ProductsService, productSnapshot, retroFixSnapshot } from '../products/products.service';
+import { computeRetroFixImpact } from '../products/products-retro-fix';
 import { ChangeRequest, ChangeRequestStatus } from './change-request.entity';
 
 export interface ChangeRequestView {
@@ -188,6 +189,20 @@ export class ApprovalsService {
 
   private async currentSnapshot(request: ChangeRequest): Promise<Record<string, unknown> | null> {
     const manager = getTenantManager();
+    if (request.operation === 'retro_fix') {
+      // O que importa é a janela: perda nova ou corrigida por outro caminho invalida o pedido.
+      const payload = request.payload as { from: string; to: string; unitPrice: number; costPrice: number };
+      const product = await manager.findOne(Product, { where: { id: request.entityId! }, lock: { mode: 'pessimistic_write' } });
+      if (!product) return null;
+      const impact = await computeRetroFixImpact(
+        manager,
+        product.id,
+        { from: new Date(payload.from), to: new Date(payload.to) },
+        payload.unitPrice,
+        payload.costPrice,
+      );
+      return retroFixSnapshot(impact);
+    }
     if (request.entityType === 'product') {
       // Travada também: uma edição concorrente do registro espera a aprovação terminar (ou vice-versa).
       const product = await manager.findOne(Product, { where: { id: request.entityId! }, lock: { mode: 'pessimistic_write' } });
@@ -206,6 +221,13 @@ export class ApprovalsService {
     switch (`${request.entityType}.${request.operation}`) {
       case 'product.update':
         await this.productsService.update(request.entityId!, request.payload as never, skip);
+        return;
+      case 'product.retro_fix':
+        await this.productsService.retroFix(
+          request.entityId!,
+          { ...(request.payload as never as Record<string, unknown>), justification: request.justification } as never,
+          skip,
+        );
         return;
       case 'product.archive':
         await this.productsService.remove(request.entityId!, undefined, skip);

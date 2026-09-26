@@ -189,4 +189,65 @@ describe('Fila de pedidos de aprovação (SP2, 2.2.1)', () => {
       expect(decisions).toHaveLength(1);
     }
   });
+
+  describe('correção retroativa (SP2, 2.3)', () => {
+    let lossIds: string[];
+
+    async function lossAt(occurredAt: string): Promise<string> {
+      const id = await seedLoss(companyId, productId, requesterId);
+      await adminQuery(
+        `UPDATE losses SET quantity = 2, "occurredAt" = $2, "unitPriceAtLoss" = 1.20, "unitCostAtLoss" = 0.80,
+                "valuationSource" = 'snapshot' WHERE id = $1`,
+        [id, occurredAt],
+      );
+      return id;
+    }
+
+    beforeEach(async () => {
+      await setPolicies(companyId, { retro_fix: { enabled: true } });
+      lossIds = [await lossAt('2026-09-05T10:00:00Z'), await lossAt('2026-09-06T10:00:00Z')];
+    });
+
+    async function requestRetroFix(): Promise<string> {
+      const { status, body } = await http(baseUrl, 'POST', `/api/products/${productId}/retro-fix`, requesterToken, {
+        from: '2026-09-01T00:00:00Z',
+        to: '2026-09-20T00:00:00Z',
+        unitPrice: 12,
+        costPrice: 8,
+        justification: JUSTIFICATION,
+      });
+      expect(status).toBe(202);
+      return body.changeRequestId;
+    }
+    const valuations = async () =>
+      (await adminQuery(`SELECT "unitPriceAtLoss", "valuationSource" FROM losses WHERE id = ANY($1) ORDER BY "occurredAt"`, [lossIds]));
+
+    it('aprovar aplica a correção com o motivo original e o aprovador como autor', async () => {
+      const id = await requestRetroFix();
+
+      const { status, body } = await http(baseUrl, 'POST', `/api/change-requests/${id}/approve`, approverToken, {});
+
+      expect(status).toBe(200);
+      expect(body.status).toBe('approved');
+      expect(await valuations()).toEqual([
+        { unitPriceAtLoss: '12.00', valuationSource: 'recalculated' },
+        { unitPriceAtLoss: '12.00', valuationSource: 'recalculated' },
+      ]);
+      const [event] = await adminQuery(`SELECT reason, "actorUserId" FROM audit_log WHERE action = 'retro_fix'`);
+      expect(event).toEqual({ reason: JUSTIFICATION, actorUserId: approverId });
+      expect(await adminQuery(`SELECT id FROM audit_log WHERE "entityId" = $1 AND action = 'approve'`, [id])).toHaveLength(1);
+    });
+
+    it('perda nova na janela depois do pedido ⇒ expira sem aplicar', async () => {
+      const id = await requestRetroFix();
+      lossIds.push(await lossAt('2026-09-07T10:00:00Z'));
+
+      const { status, body } = await http(baseUrl, 'POST', `/api/change-requests/${id}/approve`, approverToken, {});
+
+      expect(status).toBe(200);
+      expect(body).toMatchObject({ status: 'expired', decisionNote: 'O registro mudou desde o pedido.' });
+      expect((await valuations()).every((row: { valuationSource: string }) => row.valuationSource === 'snapshot')).toBe(true);
+    });
+  });
 });
+
