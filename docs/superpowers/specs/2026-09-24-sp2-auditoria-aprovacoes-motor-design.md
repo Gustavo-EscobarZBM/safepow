@@ -304,6 +304,14 @@ período ficam para sempre com o preço errado.
 de auditoria com o resumo; justificativa obrigatória; política/aprovação; relatórios do dashboard refletem o
 valor novo; RLS.
 
+**Resultado da 2.3 (2026-09-25):** `GET /products/:id/retro-fix/preview` e `POST /products/:id/retro-fix`
+(janela até 366 dias, `from` não futuro, justificativa sempre obrigatória, `valuationSource = 'recalculated'`,
+modo resumo com um único evento `retro_fix` no produto e `reason`; histórico de preço e preço atual intocados);
+portão `retro_fix` (2+ gerentes ⇒ pedido; aprovação reaplica e expira se a janela mudou — perda nova ou valor
+diferente); diálogo "Corrigir valores de perdas passadas" na edição do produto com prévia obrigatória (mudar
+datas/valores invalida a prévia). Verificada no navegador com o banco de desenvolvimento (correção com os mesmos
+valores: só a origem passou a `recalculated`). Sem migration.
+
 **Pronto quando:** o gerente corrige o valor das perdas de um período com prévia do impacto, justificativa
 e (se a política pedir) aprovação, e o dashboard passa a mostrar o valor corrigido, com a correção
 registrada na auditoria.
