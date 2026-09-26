@@ -1,6 +1,6 @@
 import { ImportFileError } from './file-sniff';
 import { listSheets, openTable, peekTable, TableRow } from './sheet-reader';
-import { csvBuffer, xlsxBuffer } from './test-fixtures';
+import { csvBuffer, rawXlsx, xlsxBuffer } from './test-fixtures';
 
 async function collect(rows: AsyncIterable<TableRow>): Promise<TableRow[]> {
   const out: TableRow[] = [];
@@ -88,5 +88,32 @@ describe('peekTable e listSheets', () => {
   it('abas na ordem da pasta de trabalho; csv ⇒ []', async () => {
     expect(await listSheets(await xlsxBuffer({ Zeta: [['x']], 'Alfa & Cia': [['y']] }))).toEqual(['Zeta', 'Alfa & Cia']);
     expect(await listSheets(csvBuffer([['a']], { delimiter: ';', encoding: 'utf-8' }))).toEqual([]);
+  });
+});
+
+describe('xlsx forjado — limites de recursos', () => {
+  const row = '<row r="1"><c r="A1" t="inlineStr"><is><t>Código</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>1</t></is></c></row>';
+
+  it('lê um xlsx mínimo montado à mão (deflate)', async () => {
+    const { headers, rows } = await openTable(rawXlsx(row, { deflate: true }), { format: 'xlsx' });
+    expect(headers).toEqual(['Código']);
+    expect((await collect(rows)).map((r) => r.cells)).toEqual([['1']]);
+  });
+
+  it('aba que descompacta mais do que o tamanho declarado ⇒ UNSUPPORTED_FILE (zip mentiroso)', async () => {
+    const big = row + '<row r="3"/>'.repeat(200_000);
+    const buffer = rawXlsx(big, { deflate: true, declared: 1_000 });
+    await expect(openTable(buffer, { format: 'xlsx' }).then((t) => collect(t.rows))).rejects.toMatchObject({
+      errorCode: 'UNSUPPORTED_FILE',
+    });
+  });
+
+  it('referência de coluna além da última do Excel (XFD) é ignorada, sem alocar colunas', async () => {
+    const forged =
+      '<row r="1"><c r="A1" t="inlineStr"><is><t>Código</t></is></c><c r="ZZZZZZ1" t="inlineStr"><is><t>x</t></is></c></row>' +
+      '<row r="2"><c r="A2" t="inlineStr"><is><t>1</t></is></c><c r="ZZZZZZ2" t="inlineStr"><is><t>y</t></is></c></row>';
+    const { headers, rows } = await openTable(rawXlsx(forged), { format: 'xlsx' });
+    expect(headers).toEqual(['Código']);
+    expect((await collect(rows))[0].cells).toEqual(['1']);
   });
 });

@@ -1,5 +1,5 @@
 import * as iconv from 'iconv-lite';
-import { Readable } from 'stream';
+import { Readable, Transform } from 'stream';
 import { createInflateRaw, inflateRawSync } from 'zlib';
 
 /** Reconhecimento do arquivo enviado (SP3, spec 2.1): formato pelo conteúdo, zip bomb, codificação, delimitador. */
@@ -97,19 +97,41 @@ function entryData(buffer: Buffer, name: string): { entry: ZipEntry; data: Buffe
   return { entry, data: buffer.subarray(dataStart, dataStart + entry.compressedSize) };
 }
 
-/** Conteúdo de um arquivo pequeno do zip (workbook.xml, rels, sharedStrings). */
+/**
+ * Conteúdo de um arquivo pequeno do zip (workbook.xml, rels, sharedStrings). Nunca descompacta além do tamanho
+ * DECLARADO (que o assertSafeZip já limitou): um zip forjado que declara pouco e expande muito é recusado.
+ */
 export function readZipEntry(buffer: Buffer, name: string): Buffer | null {
   const found = entryData(buffer, name);
   if (!found) return null;
-  return found.entry.method === 0 ? found.data : inflateRawSync(found.data);
+  const declared = found.entry.uncompressedSize;
+  if (found.entry.method === 0) {
+    if (found.data.length > declared) throw corruptZip();
+    return found.data;
+  }
+  try {
+    return inflateRawSync(found.data, { maxOutputLength: Math.max(declared, 1) });
+  } catch {
+    throw corruptZip();
+  }
 }
 
-/** Conteúdo de um arquivo do zip como stream descompactado (as abas, que podem ter centenas de MB). */
+/** Conteúdo de um arquivo do zip como stream descompactado (as abas), cortado no tamanho declarado. */
 export function zipEntryStream(buffer: Buffer, name: string): Readable | null {
   const found = entryData(buffer, name);
   if (!found) return null;
+  const declared = found.entry.uncompressedSize;
+  let total = 0;
+  const limiter = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      total += chunk.length;
+      callback(total > declared ? corruptZip() : null, total > declared ? undefined : chunk);
+    },
+  });
   const source = Readable.from([found.data]);
-  return found.entry.method === 0 ? source : source.pipe(createInflateRaw());
+  const inflated = found.entry.method === 0 ? source : source.pipe(createInflateRaw());
+  inflated.on('error', () => limiter.destroy(corruptZip()));
+  return inflated.pipe(limiter);
 }
 
 export function decodeCsv(buffer: Buffer): { text: string; encoding: 'utf-8' | 'windows-1252' } {

@@ -104,8 +104,11 @@ function sharedStrings(buffer: Buffer): string[] {
   return strings;
 }
 
+/** Última coluna do Excel (XFD): uma referência forjada além dela não pode fazer o leitor alocar milhões de colunas. */
+const MAX_COLUMNS = 16_384;
+
 function columnIndex(ref: string | undefined, fallback: number): number {
-  const letters = ref?.match(/^[A-Z]+/)?.[0];
+  const letters = ref?.match(/^[A-Z]{1,4}/)?.[0];
   if (!letters) return fallback;
   let index = 0;
   for (const letter of letters) index = index * 26 + (letter.charCodeAt(0) - 64);
@@ -173,7 +176,9 @@ async function* xlsxRows(buffer: Buffer, sheetName: string | null | undefined): 
     const name = localName(tag.name);
     if (name === 'v' || name === 't') capture = null;
     else if (name === 'is') inInline = false;
-    else if (name === 'c' && cell) {
+    else if (name === 'c' && cell && cell.index >= MAX_COLUMNS) {
+      cell = null;
+    } else if (name === 'c' && cell) {
       const { text, error } = xlsxCellText(cell.type, cell.value, cell.inline, strings);
       while (cells.length < cell.index) {
         cells.push(null);

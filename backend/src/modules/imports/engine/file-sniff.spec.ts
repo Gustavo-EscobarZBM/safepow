@@ -1,5 +1,5 @@
-import { assertSafeZip, decodeCsv, detectDelimiter, detectFormat, ImportFileError } from './file-sniff';
-import { csvBuffer, xlsxBuffer, zipWithDeclaredSize } from './test-fixtures';
+import { assertSafeZip, decodeCsv, detectDelimiter, detectFormat, ImportFileError, readZipEntry } from './file-sniff';
+import { csvBuffer, rawZip, xlsxBuffer, zipWithDeclaredSize } from './test-fixtures';
 
 function errorOf(fn: () => unknown): ImportFileError {
   try {
@@ -70,4 +70,15 @@ describe('detectDelimiter', () => {
     ['a\tb', '\t'],
     ['abc', ';'],
   ])('%p ⇒ %p', (line, delimiter) => expect(detectDelimiter(line)).toBe(delimiter));
+});
+
+describe('readZipEntry — não confia no tamanho declarado', () => {
+  it('conteúdo que descompacta além do declarado ⇒ UNSUPPORTED_FILE', () => {
+    const buffer = rawZip([{ name: 'xl/workbook.xml', data: Buffer.alloc(5_000_000), deflate: true, declared: 100 }]);
+    expect(errorOf(() => readZipEntry(buffer, 'xl/workbook.xml'))).toMatchObject({ errorCode: 'UNSUPPORTED_FILE' });
+  });
+  it('conteúdo honesto é lido', () => {
+    const buffer = rawZip([{ name: 'a.xml', data: '<x/>', deflate: true }]);
+    expect(readZipEntry(buffer, 'a.xml')?.toString()).toBe('<x/>');
+  });
 });
