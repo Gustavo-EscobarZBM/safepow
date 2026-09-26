@@ -32,6 +32,8 @@ export interface ImportOptions {
   confirmArchiveCount?: number;
   /** Identifica a execução enfileirada: mensagem com outro runId é de uma simulação substituída. */
   runId?: string;
+  /** Execução do worker que está com o job (protege contra reentrega da mesma mensagem). */
+  attemptId?: string;
   autoApply?: boolean;
 }
 

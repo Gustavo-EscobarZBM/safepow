@@ -259,6 +259,39 @@ describe('Simulação da importação (SP3, 3.1.1)', () => {
     expect((await adminQuery(`SELECT status FROM import_jobs WHERE id = $1`, [jobId]))[0].status).toBe('simulated');
   });
 
+  it('a mesma mensagem entregue duas vezes ao mesmo tempo (redelivery do BullMQ) não duplica linhas', async () => {
+    await seedCatalog();
+    const jobId = await upload();
+    await simulate(jobId);
+    const data = queue.calls[0].data;
+
+    // Cada execução para no download até as duas terem passado pela transação inicial.
+    const releases: (() => void)[] = [];
+    let arrived = 0;
+    let bothArrived!: () => void;
+    const bothAtGate = new Promise<void>((resolve) => (bothArrived = resolve));
+    const gated = {
+      uploadBuffer: storage.uploadBuffer.bind(storage),
+      downloadBuffer: async (key: string) => {
+        arrived += 1;
+        if (arrived === 2) bothArrived();
+        await new Promise<void>((resolve) => releases.push(resolve));
+        return storage.downloadBuffer(key);
+      },
+    } as unknown as StorageService;
+    const ds = await appDataSource();
+    const runs = Promise.all([new ImportSimulator(ds, gated).run(data), new ImportSimulator(ds, gated).run(data)]);
+    await bothAtGate;
+    releases.forEach((release) => release());
+    await runs;
+
+    const rows = await adminQuery(`SELECT "rowNumber" FROM import_rows WHERE "jobId" = $1`, [jobId]);
+    expect(rows).toHaveLength(8);
+    const [job] = await adminQuery(`SELECT status, summary FROM import_jobs WHERE id = $1`, [jobId]);
+    expect(job.status).toBe('simulated');
+    expect(job.summary.totalRows).toBe(8);
+  });
+
   it('simular de novo apaga as linhas da simulação anterior', async () => {
     await seedCatalog();
     const jobId = await upload();

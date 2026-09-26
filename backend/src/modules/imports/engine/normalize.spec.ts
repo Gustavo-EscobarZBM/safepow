@@ -56,6 +56,13 @@ describe('normalizeBarcode', () => {
   it.each(['7891234567895', '036000291452', '96385074', '12345'])('%s sem aviso', (code) => {
     expect(normalizeBarcode(code)).toEqual({ value: code, errors: [], warnings: [] });
   });
+  it.each(['7,89123E+12', '7.89123e+12', '7,89E12'])('notação científica do Excel (%s) ⇒ erro', (code) => {
+    expect(normalizeBarcode(code)).toEqual({
+      value: null,
+      errors: ['Código em notação científica: o Excel cortou os dígitos. Formate a coluna como Texto e exporte de novo.'],
+      warnings: [],
+    });
+  });
   it('dígito verificador inválido ⇒ aviso', () => {
     expect(normalizeBarcode('7891234567890').warnings).toEqual(['GTIN_CHECK_DIGIT']);
   });

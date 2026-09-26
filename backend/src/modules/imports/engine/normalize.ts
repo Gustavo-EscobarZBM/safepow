@@ -58,7 +58,11 @@ export function gtinCheckDigitValid(digits: string): boolean {
 
 export function normalizeBarcode(text: string | null): NormalizeResult<string | null> {
   const trimmed = (text ?? '').trim();
-  const code = /^[\d\s.-]+$/.test(trimmed) ? trimmed.replace(/\D/g, '') : trimmed;
+  // CSV salvo pelo Excel grava o texto exibido: EAN em coluna "Geral" sai como 7,89123E+12, sem os dígitos.
+  if (/^\d+([.,]\d+)?E[+-]?\d+$/i.test(trimmed)) {
+    return fail(null, 'Código em notação científica: o Excel cortou os dígitos. Formate a coluna como Texto e exporte de novo.');
+  }
+  const code =/^[\d\s.-]+$/.test(trimmed) ? trimmed.replace(/\D/g, '') : trimmed;
   if (!code) return fail(null, 'Código de barras vazio.');
   if (code.length > MAX_BARCODE_LENGTH) return fail(null, `Código de barras com mais de ${MAX_BARCODE_LENGTH} caracteres.`);
   if (!/^\d+$/.test(code)) return ok(code);

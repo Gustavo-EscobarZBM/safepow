@@ -72,18 +72,29 @@ function zipEntries(buffer: Buffer): ZipEntry[] {
   return entries;
 }
 
+/** Acima deste tamanho descompactado, uma entrada comprimida mais de 100x é tratada como zip bomb. */
+const RATIO_CHECK_MIN_BYTES = 10 * 1024 * 1024;
+const MAX_RATIO = 100;
+
 /**
  * Recusa o .xlsx cujo conteúdo descompactado passe do limite, lendo só os tamanhos declarados no diretório
- * central (o leitor em streaming respeita esses tamanhos). Sem limite de razão de compressão: planilhas muito
- * repetitivas passam de 100x legitimamente, e o teto absoluto já limita a memória.
+ * central (a leitura corta no tamanho declarado — ver readZipEntry/zipEntryStream). A razão de compressão só é
+ * checada em entradas grandes: abas pequenas e repetitivas passam de 100x legitimamente, mas 10 MB+ comprimidos
+ * mais de 100x é zip bomb (XML de planilha real comprime ~10–20x).
  */
 export function assertSafeZip(buffer: Buffer, limits: { maxUncompressedBytes: number } = { maxUncompressedBytes: DEFAULT_MAX_UNCOMPRESSED }): void {
-  const total = zipEntries(buffer).reduce((sum, entry) => sum + entry.uncompressedSize, 0);
+  const entries = zipEntries(buffer);
+  const total = entries.reduce((sum, entry) => sum + entry.uncompressedSize, 0);
   if (total > limits.maxUncompressedBytes) {
     throw new ImportFileError(
       'FILE_TOO_LARGE_UNCOMPRESSED',
       `A planilha descompactada passa de ${Math.round(limits.maxUncompressedBytes / 1024 / 1024)} MB.`,
     );
+  }
+  for (const entry of entries) {
+    if (entry.uncompressedSize > RATIO_CHECK_MIN_BYTES && entry.uncompressedSize > MAX_RATIO * Math.max(entry.compressedSize, 1)) {
+      throw new ImportFileError('FILE_TOO_LARGE_UNCOMPRESSED', 'A planilha tem conteúdo comprimido de forma suspeita e não pode ser lida.');
+    }
   }
 }
 
@@ -97,14 +108,24 @@ function entryData(buffer: Buffer, name: string): { entry: ZipEntry; data: Buffe
   return { entry, data: buffer.subarray(dataStart, dataStart + entry.compressedSize) };
 }
 
+const MAX_SMALL_ENTRY_BYTES = 5 * 1024 * 1024;
+
+/** Tamanho descompactado declarado de um arquivo do zip (null se não existe). */
+export function zipEntrySize(buffer: Buffer, name: string): number | null {
+  return zipEntries(buffer).find((e) => e.name === name)?.uncompressedSize ?? null;
+}
+
 /**
- * Conteúdo de um arquivo pequeno do zip (workbook.xml, rels, sharedStrings). Nunca descompacta além do tamanho
- * DECLARADO (que o assertSafeZip já limitou): um zip forjado que declara pouco e expande muito é recusado.
+ * Conteúdo de um arquivo PEQUENO do zip (workbook.xml, rels), descompactado de uma vez. Nunca descompacta além
+ * do tamanho declarado (um zip forjado que declara pouco e expande muito é recusado) nem além de 5 MB.
  */
 export function readZipEntry(buffer: Buffer, name: string): Buffer | null {
   const found = entryData(buffer, name);
   if (!found) return null;
   const declared = found.entry.uncompressedSize;
+  if (declared > MAX_SMALL_ENTRY_BYTES) {
+    throw new ImportFileError('FILE_TOO_LARGE_UNCOMPRESSED', 'A planilha tem um arquivo interno grande demais.');
+  }
   if (found.entry.method === 0) {
     if (found.data.length > declared) throw corruptZip();
     return found.data;

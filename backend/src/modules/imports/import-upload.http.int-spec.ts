@@ -147,6 +147,21 @@ describe('POST /imports — upload com prévia (SP3, 3.1.1)', () => {
     expect(body.suggestedMapping).toEqual(saved);
   });
 
+  it('mapeamento salvo casa com outra grafia dos cabeçalhos e é traduzido para os cabeçalhos do arquivo novo', async () => {
+    const saved = { barcode: 'Cód. Barras', name: 'Descrição', costPrice: 'Preço de Venda' };
+    const [row] = await adminQuery(
+      `INSERT INTO import_mappings ("companyId", resource, name, mapping, "headerFingerprint")
+       VALUES ($1, 'products', 'ERP X', $2, $3) RETURNING id`,
+      [companyId, JSON.stringify(saved), headerFingerprint(ERP_HEADERS)],
+    );
+    const buffer = await xlsxBuffer({ Produtos: [['COD BARRAS', 'DESCRICAO', 'PRECO DE VENDA', 'CUSTO'], ['1', 'Arroz', '1', '1']] });
+    const { body } = await uploadFile(baseUrl, token, buffer, 'b.xlsx');
+    expect(body.matchedMapping).toEqual({ id: row.id, name: 'ERP X' });
+    expect(body.suggestedMapping).toEqual({ barcode: 'COD BARRAS', name: 'DESCRICAO', costPrice: 'PRECO DE VENDA' });
+    const [mapping] = await adminQuery(`SELECT "lastUsedAt" FROM import_mappings WHERE id = $1`, [row.id]);
+    expect(mapping.lastUsedAt).not.toBeNull();
+  });
+
   it('funcionário ⇒ 403', async () => {
     const employee = await seedUser(companyId, 'employee');
     const employeeToken = await tokenFor(employee, companyId, UserRole.EMPLOYEE);

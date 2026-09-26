@@ -82,3 +82,17 @@ describe('readZipEntry — não confia no tamanho declarado', () => {
     expect(readZipEntry(buffer, 'a.xml')?.toString()).toBe('<x/>');
   });
 });
+
+describe('assertSafeZip — razão de compressão por entrada', () => {
+  it('entrada grande (> 10 MB) comprimida mais de 100x ⇒ recusada', () => {
+    const buffer = rawZip([{ name: 'xl/sharedStrings.xml', data: Buffer.alloc(20 * 1024 * 1024, 0x20), deflate: true }]);
+    expect(errorOf(() => assertSafeZip(buffer))).toMatchObject({
+      errorCode: 'FILE_TOO_LARGE_UNCOMPRESSED',
+      message: 'A planilha tem conteúdo comprimido de forma suspeita e não pode ser lida.',
+    });
+  });
+  it('entrada pequena muito repetitiva passa (planilha legítima)', () => {
+    const buffer = rawZip([{ name: 'xl/worksheets/sheet1.xml', data: Buffer.alloc(2 * 1024 * 1024, 0x20), deflate: true }]);
+    expect(() => assertSafeZip(buffer)).not.toThrow();
+  });
+});

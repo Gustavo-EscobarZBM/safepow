@@ -1,6 +1,6 @@
 import { ImportFileError } from './file-sniff';
 import { listSheets, openTable, peekTable, TableRow } from './sheet-reader';
-import { csvBuffer, rawXlsx, xlsxBuffer } from './test-fixtures';
+import { csvBuffer, rawXlsx, rawZip, xlsxBuffer } from './test-fixtures';
 
 async function collect(rows: AsyncIterable<TableRow>): Promise<TableRow[]> {
   const out: TableRow[] = [];
@@ -115,5 +115,35 @@ describe('xlsx forjado — limites de recursos', () => {
     const { headers, rows } = await openTable(rawXlsx(forged), { format: 'xlsx' });
     expect(headers).toEqual(['Código']);
     expect((await collect(rows))[0].cells).toEqual(['1']);
+  });
+});
+
+describe('sharedStrings — teto e leitura sem travar', () => {
+  const workbook = '<workbook xmlns:r="r"><sheets><sheet name="A" sheetId="1" r:id="rId1"/></sheets></workbook>';
+  const rels = '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>';
+  const sheet = '<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c></row><row r="2"><c r="A2" t="s"><v>1</v></c></row></sheetData></worksheet>';
+  const zipWith = (sst: string) =>
+    rawZip([
+      { name: 'xl/workbook.xml', data: workbook },
+      { name: 'xl/_rels/workbook.xml.rels', data: rels },
+      { name: 'xl/sharedStrings.xml', data: sst, deflate: true },
+      { name: 'xl/worksheets/sheet1.xml', data: sheet },
+    ]);
+
+  it('sharedStrings honesto é lido (texto rico concatenado)', async () => {
+    const { headers, rows } = await openTable(
+      zipWith('<sst><si><t>Código</t></si><si><r><t>12</t></r><r><t>3</t></r></si></sst>'),
+      { format: 'xlsx' },
+    );
+    expect(headers).toEqual(['Código']);
+    expect((await collect(rows))[0].cells).toEqual(['123']);
+  });
+
+  it('sharedStrings acima de 50 MB ⇒ FILE_TOO_LARGE_UNCOMPRESSED, sem ler', async () => {
+    const huge = '<sst><si><t>Código</t></si><si><t>1</t></si>' + ' '.repeat(51 * 1024 * 1024) + '</sst>';
+    await expect(openTable(zipWith(huge), { format: 'xlsx' })).rejects.toMatchObject({
+      errorCode: 'FILE_TOO_LARGE_UNCOMPRESSED',
+      message: 'A planilha tem textos demais (acima de 50 MB).',
+    });
   });
 });

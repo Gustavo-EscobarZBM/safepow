@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'crypto';
 import { afterCommit, getTenantContext, getTenantManager } from '../../common/tenant/tenant-storage';
 import { StorageService } from '../uploads/storage.service';
 import { assertSafeZip, decodeCsv, detectDelimiter, detectFormat, ImportFileError } from './engine/file-sniff';
-import { headerFingerprint, suggestMapping } from './engine/mapping';
+import { headerFingerprint, normalizeHeader, suggestMapping } from './engine/mapping';
 import { listSheets, peekTable, TableSource } from './engine/sheet-reader';
 import { ImportResourceHandler, MissingPage } from './engine/types';
 import { ListImportRowsDto, PageQueryDto } from './dto/list-import-rows.dto';
@@ -259,12 +259,18 @@ export class ImportJobsService {
   private async previewOf(handler: ImportResourceHandler, buffer: Buffer, source: TableSource): Promise<PreviewResult> {
     const { headers, sample } = await peekTable(buffer, source);
     const saved = await this.mappings.findByFingerprint(handler.resource, headerFingerprint(headers));
-    return {
-      headers,
-      sample,
-      suggestedMapping: saved ? saved.mapping : suggestMapping(headers, handler.fields),
-      matchedMapping: saved ? { id: saved.id, name: saved.name } : null,
-    };
+    if (!saved) return { headers, sample, suggestedMapping: suggestMapping(headers, handler.fields), matchedMapping: null };
+
+    // O fingerprint casa pelo cabeçalho normalizado; o mapeamento salvo guarda a grafia do arquivo antigo
+    // ("Cód. Barras"). Cada valor é traduzido para a grafia do arquivo atual ("COD BARRAS").
+    const byNormalized = new Map(headers.map((header) => [normalizeHeader(header), header]));
+    const suggestedMapping: Record<string, string> = {};
+    for (const [field, header] of Object.entries(saved.mapping)) {
+      const current = byNormalized.get(normalizeHeader(header));
+      if (current) suggestedMapping[field] = current;
+    }
+    await this.mappings.touch(saved.id);
+    return { headers, sample, suggestedMapping, matchedMapping: { id: saved.id, name: saved.name } };
   }
 
   private async findDuplicate(job: ImportJob): Promise<UploadResult['duplicateOf']> {

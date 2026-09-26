@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { DataSource, EntityManager } from 'typeorm';
 import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { normalizePolicies } from '../approvals/approval-policies';
@@ -59,18 +60,26 @@ export class ImportSimulator {
     const job = await this.tx(companyId, (m) => m.findOne(ImportJob, { where: { id: jobId } }));
     if (!job || job.status !== ImportJobStatus.SIMULATING || job.options?.runId !== runId) return;
 
+    // Marca desta execução: se o BullMQ reentregar a mesma mensagem com a primeira ainda viva (lock expirado),
+    // a execução mais nova toma o job e a antiga para no próximo lockCurrent, sem duplicar linhas.
+    const attemptId = randomUUID();
+    const run = { runId, attemptId };
     try {
       await this.tx(companyId, async (m) => {
-        await this.lockCurrent(m, jobId, runId);
+        await this.lockCurrent(m, jobId, { runId });
+        await m.query(`UPDATE import_jobs SET options = options || jsonb_build_object('attemptId', $2::text) WHERE id = $1`, [
+          jobId,
+          attemptId,
+        ]);
         await m.delete(ImportRow, { jobId });
       });
-      await this.simulate(job, companyId, runId);
+      await this.simulate(job, companyId, run);
     } catch (error) {
       if (error instanceof Superseded) return;
       this.logger.error(`Falha na simulação da importação ${jobId}`, error as Error);
       const message = error instanceof Error ? error.message : 'Erro desconhecido ao ler a planilha.';
       await this.tx(companyId, async (m) => {
-        await this.lockCurrent(m, jobId, runId);
+        await this.lockCurrent(m, jobId, run);
         await m.update(ImportJob, { id: jobId }, { status: ImportJobStatus.FAILED, lastError: message, completedAt: new Date() });
       }).catch((inner) => {
         if (!(inner instanceof Superseded)) throw inner;
@@ -78,7 +87,7 @@ export class ImportSimulator {
     }
   }
 
-  private async simulate(job: ImportJob, companyId: string, runId: string): Promise<void> {
+  private async simulate(job: ImportJob, companyId: string, run: { runId: string; attemptId: string }): Promise<void> {
     const handler = getImportHandler(job.resource);
     const mapping = job.mapping ?? {};
     const updateFields = job.options?.updateFields ?? [];
@@ -108,7 +117,7 @@ export class ImportSimulator {
       const pending = block;
       block = [];
       await this.tx(companyId, async (m) => {
-        await this.lockCurrent(m, job.id, runId);
+        await this.lockCurrent(m, job.id, run);
         const prepared = pending.map((row) => this.prepare(row, columns, handler, seen));
         const keys = prepared.filter((p) => p.action === null).map((p) => p.key!);
         const existing = await handler.loadExisting(m, keys);
@@ -156,7 +165,7 @@ export class ImportSimulator {
     if (block.length) await flush();
 
     await this.tx(companyId, async (m) => {
-      await this.lockCurrent(m, job.id, runId);
+      await this.lockCurrent(m, job.id, run);
       const missing = await handler.countMissing(m, job.id);
       summary.missingCount = missing.count;
       summary.sensitive.archiveWithHistory = missing.withHistory;
@@ -174,7 +183,7 @@ export class ImportSimulator {
     });
 
     await this.tx(companyId, async (m) => {
-      await this.lockCurrent(m, job.id, runId);
+      await this.lockCurrent(m, job.id, run);
       await m.update(ImportJob, { id: job.id }, {
         status: ImportJobStatus.SIMULATED,
         simulatedAt: new Date(),
@@ -262,13 +271,14 @@ export class ImportSimulator {
     return policies.price_change.enabled ? policies.price_change.thresholdPercent : null;
   }
 
-  /** Trava o job até o fim da transação e confirma que esta execução ainda é a vigente. */
-  private async lockCurrent(m: EntityManager, jobId: string, runId: string): Promise<void> {
-    const [row]: { status: string; runId: string | null }[] = await m.query(
-      `SELECT status, options->>'runId' AS "runId" FROM import_jobs WHERE id = $1 FOR UPDATE`,
+  /** Trava o job até o fim da transação e confirma que esta execução (runId e, depois de começar, attemptId) é a vigente. */
+  private async lockCurrent(m: EntityManager, jobId: string, run: { runId: string; attemptId?: string }): Promise<void> {
+    const [row]: { status: string; runId: string | null; attemptId: string | null }[] = await m.query(
+      `SELECT status, options->>'runId' AS "runId", options->>'attemptId' AS "attemptId" FROM import_jobs WHERE id = $1 FOR UPDATE`,
       [jobId],
     );
-    if (!row || row.status !== ImportJobStatus.SIMULATING || row.runId !== runId) throw new Superseded();
+    if (!row || row.status !== ImportJobStatus.SIMULATING || row.runId !== run.runId) throw new Superseded();
+    if (run.attemptId && row.attemptId !== run.attemptId) throw new Superseded();
   }
 
   private tx<T>(companyId: string, fn: (m: EntityManager) => Promise<T>): Promise<T> {

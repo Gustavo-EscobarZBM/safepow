@@ -2,7 +2,7 @@ import { parse } from 'csv-parse';
 import { SaxesParser, SaxesTagPlain } from 'saxes';
 import { Readable } from 'stream';
 import { StringDecoder } from 'string_decoder';
-import { decodeCsv, detectDelimiter, ImportFileError, readZipEntry, zipEntryStream } from './file-sniff';
+import { decodeCsv, detectDelimiter, ImportFileError, readZipEntry, zipEntrySize, zipEntryStream } from './file-sniff';
 import { cellToText } from './normalize';
 
 /**
@@ -74,9 +74,20 @@ export async function listSheets(buffer: Buffer): Promise<string[]> {
   return isZip(buffer) ? workbookSheets(buffer).map((s) => s.name) : [];
 }
 
-function sharedStrings(buffer: Buffer): string[] {
-  const xml = readZipEntry(buffer, 'xl/sharedStrings.xml');
-  if (!xml) return [];
+const MAX_SHARED_STRINGS_BYTES = 50 * 1024 * 1024;
+
+/**
+ * Textos compartilhados da pasta de trabalho, lidos em streaming (chunk a chunk, sem travar o event loop) e com
+ * teto de 50 MB descompactados — sem isso, um xlsx de poucos KB bem comprimido travaria a API por segundos.
+ */
+async function sharedStrings(buffer: Buffer): Promise<string[]> {
+  const declared = zipEntrySize(buffer, 'xl/sharedStrings.xml');
+  if (declared === null) return [];
+  if (declared > MAX_SHARED_STRINGS_BYTES) {
+    throw new ImportFileError('FILE_TOO_LARGE_UNCOMPRESSED', 'A planilha tem textos demais (acima de 50 MB).');
+  }
+  const stream = zipEntryStream(buffer, 'xl/sharedStrings.xml');
+  if (!stream) return [];
   const strings: string[] = [];
   const parser = new SaxesParser();
   let current: string | null = null;
@@ -100,7 +111,9 @@ function sharedStrings(buffer: Buffer): string[] {
       current = null;
     }
   });
-  parser.write(xml.toString('utf8')).close();
+  const decoder = new StringDecoder('utf8');
+  for await (const chunk of stream) parser.write(decoder.write(chunk as Buffer));
+  parser.write(decoder.end()).close();
   return strings;
 }
 
@@ -140,7 +153,7 @@ async function* xlsxRows(buffer: Buffer, sheetName: string | null | undefined): 
   const sheet = sheetName ? sheets.find((s) => s.name === sheetName) : sheets[0];
   const stream = sheet?.path ? zipEntryStream(buffer, sheet.path) : null;
   if (!stream) return;
-  const strings = sharedStrings(buffer);
+  const strings = await sharedStrings(buffer);
 
   const parser = new SaxesParser();
   const ready: TableRow[] = [];
