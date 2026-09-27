@@ -374,3 +374,18 @@ merge em `main` + push. Migrations novas só entram no banco de desenvolvimento 
   `summary` sem `counts`; limpeza sem lote dentro de `GET /imports`; `options.actorUserId` só informativo; fila única
   com concorrência 1 entre empresas.
 
+### 3.2 — assistente de importação no painel (2026-09-27)
+- Entregue: `/cadastros/importacoes` (histórico paginado), `/cadastros/importacoes/nova` e `/cadastros/importacoes/[id]`
+  com o assistente Arquivo → Colunas → Simulação → Resultado (passo derivado do status do job; F5 retoma no passo
+  certo; consulta a cada 2 s enquanto simula/grava); confirmação com justificativa/aprovação do SP2, confirmação
+  forte de ausentes e 409 `IMPORT_IN_PROGRESS`; relatório CSV; link "Importações" no menu; tela de Produtos sem o
+  card antigo (botão "Importar planilha"); pedido `import_job` na fila de aprovações com "Ver simulação".
+- Backend: a prévia devolve `fields` e aceita pedido sem `sheetName` (usa a aba do job — retomada e CSV); saiu o
+  endpoint antigo `POST/GET /products/import` (404), com `legacyImport`, `legacyStatus`, `prepareAutoApply` e
+  `autoApply`.
+- Verificado no navegador (backend + worker reais): upload → colunas sugeridas → simulação (3 criar, 1 erro, aviso
+  de dígito verificador) → filtro "Erros" → F5 → confirmar → concluída → histórico e produtos; tema claro/escuro;
+  375 px sem rolagem horizontal da página (a barra lateral fixa no celular é do layout existente).
+- Desvios (ledger): "Arquivados" no resultado = ausentes quando `archiveMissing` (o backend não guarda o número);
+  simulação que falhou mostra o `lastError` acima das colunas; depois do upload a URL vira `/importacoes/:id` por
+  `history.replaceState`.
