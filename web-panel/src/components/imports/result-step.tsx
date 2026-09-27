@@ -6,9 +6,12 @@ import { Download, RotateCcw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api, ApiError } from '@/lib/api-client';
 import { downloadBlob, type ImportJob } from '@/lib/imports';
+import { SimulationStep } from './simulation-step';
 
 interface ResultStepProps {
   job: ImportJob;
+  /** Quem vê a tela: só o autor cancela a importação que aguarda aprovação. */
+  currentUserId: string;
   onJobChange: (job: ImportJob) => void;
   onAdjustColumns: () => void;
 }
@@ -17,7 +20,7 @@ const LINK_BUTTON =
   'inline-flex h-9 items-center justify-center gap-2 rounded-md border px-4 text-sm font-medium transition-colors hover:bg-muted';
 
 /** Passo "Resultado" (SP3): gravação em andamento, aguardando aprovação, concluída, falhou ou cancelada. */
-export function ResultStep({ job, onJobChange, onAdjustColumns }: ResultStepProps) {
+export function ResultStep({ job, currentUserId, onJobChange, onAdjustColumns }: ResultStepProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const counts = job.summary?.counts;
@@ -50,10 +53,12 @@ export function ResultStep({ job, onJobChange, onAdjustColumns }: ResultStepProp
       Cancelar importação
     </Button>
   );
+  // <a> e não <Link>: depois do upload a URL vira /importacoes/:id por history.replaceState, mas a árvore do Next
+  // continua sendo a de /nova — um <Link> para /nova reaproveitaria o assistente com o job anterior.
   const newImport = (
-    <Link href="/cadastros/importacoes/nova" className={LINK_BUTTON}>
+    <a href="/cadastros/importacoes/nova" className={LINK_BUTTON}>
       Nova importação
-    </Link>
+    </a>
   );
   const reportButton = job.errorReportKey ? (
     <Button variant="outline" onClick={downloadReport}>
@@ -84,15 +89,23 @@ export function ResultStep({ job, onJobChange, onAdjustColumns }: ResultStepProp
       </div>
     );
   } else if (job.status === 'pending_approval') {
+    const mine = !!job.createdByUserId && job.createdByUserId === currentUserId;
     body = (
-      <div className="space-y-3">
-        <p className="text-sm">Aguardando aprovação de outro gerente.</p>
-        <div className="flex flex-wrap gap-2">
-          <Link href="/aprovacoes" className={LINK_BUTTON}>
-            Ver pedidos
-          </Link>
-          {cancelButton}
+      <div className="space-y-6">
+        <div className="space-y-3">
+          <p className="text-sm">
+            {mine
+              ? 'Aguardando aprovação de outro gerente.'
+              : 'Esta importação aguarda aprovação. Decida o pedido na fila de aprovações.'}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/aprovacoes" className={LINK_BUTTON}>
+              Ver pedidos
+            </Link>
+            {mine && cancelButton}
+          </div>
         </div>
+        <SimulationStep job={job} readOnly onBack={() => undefined} onConfirmed={() => undefined} />
       </div>
     );
   } else if (job.status === 'completed') {

@@ -40,6 +40,10 @@ interface SimulationStepProps {
   job: ImportJob;
   onBack: () => void;
   onConfirmed: (job: ImportJob, pending: boolean) => void;
+  /** Cancelamento da simulação travada. */
+  onJobChange?: (job: ImportJob) => void;
+  /** Só leitura (importação aguardando aprovação): sem confirmar nem voltar às colunas. */
+  readOnly?: boolean;
 }
 
 function plural(n: number, one: string, many: string) {
@@ -47,9 +51,9 @@ function plural(n: number, one: string, many: string) {
 }
 
 /** Passo "Simulação" (SP3): o que a planilha vai mudar, e a confirmação (com justificativa/aprovação do SP2). */
-export function SimulationStep({ job, onBack, onConfirmed }: SimulationStepProps) {
+export function SimulationStep({ job, onBack, onConfirmed, onJobChange, readOnly = false }: SimulationStepProps) {
   const summary = job.summary;
-  const ready = job.status === 'simulated' && !!summary;
+  const ready = (readOnly || job.status === 'simulated') && !!summary;
 
   const [filter, setFilter] = useState('all');
   const [page, setPage] = useState(1);
@@ -64,7 +68,10 @@ export function SimulationStep({ job, onBack, onConfirmed }: SimulationStepProps
   const [archiveMissing, setArchiveMissing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [archiveConfirm, setArchiveConfirm] = useState<{ message: string; count: number } | null>(null);
+  const [archiveConfirm, setArchiveConfirm] = useState<{
+    message: string;
+    count: number;
+  } | null>(null);
   const [typedCount, setTypedCount] = useState('');
   const [downloading, setDownloading] = useState(false);
   const approval = useApprovalFlow();
@@ -101,11 +108,35 @@ export function SimulationStep({ job, onBack, onConfirmed }: SimulationStepProps
     };
   }, [showMissing, missingPage, job.id]);
 
+  async function cancel() {
+    setConfirming(true);
+    setError(null);
+    try {
+      const result = await api.post<{ job: ImportJob }>(`imports/${job.id}/cancel`);
+      onJobChange?.(result.job);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Erro ao cancelar a importação.');
+    } finally {
+      setConfirming(false);
+    }
+  }
+
   if (!ready) {
+    // Sem saída aqui, uma simulação travada (worker/Redis fora) prenderia a tela e a empresa (IMPORT_IN_PROGRESS).
     return (
-      <div className="flex items-center gap-3 py-10 text-sm text-muted-foreground">
-        <Loader2 className="size-5 animate-spin" aria-hidden />
-        Simulando a planilha…
+      <div className="space-y-4 py-6">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <Loader2 className="size-5 animate-spin" aria-hidden />
+          Simulando a planilha…
+        </div>
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        <Button variant="outline" size="sm" onClick={cancel} disabled={confirming}>
+          Cancelar importação
+        </Button>
       </div>
     );
   }
@@ -289,72 +320,79 @@ export function SimulationStep({ job, onBack, onConfirmed }: SimulationStepProps
         </section>
       )}
 
-      <section className="space-y-4 rounded-lg border p-4">
-        {missingCount > 0 && (
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="archive-missing"
-              checked={archiveMissing}
-              onCheckedChange={(checked) => setArchiveMissing(checked === true)}
-            />
-            <Label htmlFor="archive-missing" className="font-normal">
-              {missingCount === 1 ? 'Arquivar o produto ausente' : `Arquivar os ${missingCount} produtos ausentes`}
-            </Label>
-          </div>
-        )}
-
-        {archiveConfirm && (
-          <div role="alertdialog" aria-labelledby="archive-confirm-text" className="space-y-3 rounded-md border border-destructive/40 bg-destructive/5 p-3">
-            <p id="archive-confirm-text" className="text-sm">
-              {archiveConfirm.message}
-            </p>
-            <div className="max-w-xs space-y-1">
-              <Label htmlFor="archive-confirm-count">Digite {archiveConfirm.count} para confirmar</Label>
-              <Input
-                id="archive-confirm-count"
-                inputMode="numeric"
-                value={typedCount}
-                onChange={(e) => setTypedCount(e.target.value)}
+      {!readOnly && (
+        <section className="space-y-4 rounded-lg border p-4">
+          {missingCount > 0 && (
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="archive-missing"
+                checked={archiveMissing}
+                disabled={confirming || !!archiveConfirm}
+                onCheckedChange={(checked) => setArchiveMissing(checked === true)}
               />
+              <Label htmlFor="archive-missing" className="font-normal">
+                {missingCount === 1 ? 'Arquivar o produto ausente' : `Arquivar os ${missingCount} produtos ausentes`}
+              </Label>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="destructive"
-                disabled={confirming || typedCount.trim() !== String(archiveConfirm.count)}
-                onClick={() => send({ confirmArchiveCount: archiveConfirm.count })}
-              >
-                Confirmar arquivamento
-              </Button>
-              <Button variant="outline" onClick={() => setArchiveConfirm(null)} disabled={confirming}>
-                Cancelar
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
-
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={() => send()} disabled={confirming || !!archiveConfirm}>
-            <Check className="size-4" aria-hidden />
-            Confirmar importação
-          </Button>
-          <Button variant="outline" onClick={onBack} disabled={confirming}>
-            <ArrowLeft className="size-4" aria-hidden />
-            Voltar e ajustar colunas
-          </Button>
-          {job.errorReportKey && (
-            <Button variant="outline" onClick={downloadReport} disabled={downloading}>
-              <Download className="size-4" aria-hidden />
-              Baixar relatório (CSV)
-            </Button>
           )}
-        </div>
-      </section>
+
+          {archiveConfirm && (
+            <div
+              role="alertdialog"
+              aria-labelledby="archive-confirm-text"
+              className="space-y-3 rounded-md border border-destructive/40 bg-destructive/5 p-3"
+            >
+              <p id="archive-confirm-text" className="text-sm">
+                {archiveConfirm.message}
+              </p>
+              <div className="max-w-xs space-y-1">
+                <Label htmlFor="archive-confirm-count">Digite {archiveConfirm.count} para confirmar</Label>
+                <Input
+                  id="archive-confirm-count"
+                  inputMode="numeric"
+                  value={typedCount}
+                  onChange={(e) => setTypedCount(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="destructive"
+                  disabled={confirming || typedCount.trim() !== String(archiveConfirm.count)}
+                  onClick={() => send({ confirmArchiveCount: archiveConfirm.count })}
+                >
+                  Confirmar arquivamento
+                </Button>
+                <Button variant="outline" onClick={() => setArchiveConfirm(null)} disabled={confirming}>
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => send()} disabled={confirming || !!archiveConfirm}>
+              <Check className="size-4" aria-hidden />
+              Confirmar importação
+            </Button>
+            <Button variant="outline" onClick={onBack} disabled={confirming}>
+              <ArrowLeft className="size-4" aria-hidden />
+              Voltar e ajustar colunas
+            </Button>
+            {job.errorReportKey && (
+              <Button variant="outline" onClick={downloadReport} disabled={downloading}>
+                <Download className="size-4" aria-hidden />
+                Baixar relatório (CSV)
+              </Button>
+            )}
+          </div>
+        </section>
+      )}
       {approval.dialog}
     </div>
   );

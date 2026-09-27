@@ -32,7 +32,7 @@ function duplicateNotice(duplicate: NonNullable<UploadResult['duplicateOf']>): s
  * Assistente de importação (SP3, 3.2): o passo sai do status do job — a fonte da verdade é o backend, então recarregar
  * a página retoma no passo certo. Consulta o job a cada 2 s enquanto simula, grava ou reverte.
  */
-export function ImportWizard({ jobId }: { jobId?: string }) {
+export function ImportWizard({ jobId, currentUserId = '' }: { jobId?: string; currentUserId?: string }) {
   const [job, setJob] = useState<ImportJob | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
@@ -160,6 +160,7 @@ export function ImportWizard({ jobId }: { jobId?: string }) {
             <SimulationStep
               job={job}
               onBack={() => setEditingColumns(true)}
+              onJobChange={setJob}
               onConfirmed={(next, pending) => {
                 setNotice(pending ? PENDING_APPROVAL_NOTICE : null);
                 setJob(next);
@@ -167,7 +168,7 @@ export function ImportWizard({ jobId }: { jobId?: string }) {
             />
           )}
           {step === 'result' && job && (
-            <ResultStep job={job} onJobChange={setJob} onAdjustColumns={() => setEditingColumns(true)} />
+            <ResultStep job={job} currentUserId={currentUserId} onJobChange={setJob} onAdjustColumns={() => setEditingColumns(true)} />
           )}
         </CardContent>
       </Card>

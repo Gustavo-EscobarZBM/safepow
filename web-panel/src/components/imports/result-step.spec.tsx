@@ -5,9 +5,18 @@ import { ResultStep } from './result-step';
 import { api } from '@/lib/api-client';
 import type { ImportJob, ImportSummary } from '@/lib/imports';
 
+// Link do Next marcado, para distinguir de <a href> (navegação completa).
+vi.mock('next/link', () => ({
+  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
+    <a href={href} data-next-link="" {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
 vi.mock('@/lib/api-client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api-client')>()),
-  api: { post: vi.fn(), getBlob: vi.fn() },
+  api: { get: vi.fn(), post: vi.fn(), getBlob: vi.fn() },
 }));
 
 const SUMMARY: ImportSummary = {
@@ -23,6 +32,7 @@ function job(overrides: Partial<ImportJob>): ImportJob {
     id: 'j1',
     status: 'completed',
     fileName: 'produtos.xlsx',
+    createdByUserId: 'u-author',
     summary: SUMMARY,
     options: { updateFields: [] },
     lastError: null,
@@ -31,15 +41,18 @@ function job(overrides: Partial<ImportJob>): ImportJob {
   } as ImportJob;
 }
 
-function renderStep(value: ImportJob) {
+function renderStep(value: ImportJob, currentUserId = 'u-author') {
   const onJobChange = vi.fn();
   const onAdjustColumns = vi.fn();
-  render(<ResultStep job={value} onJobChange={onJobChange} onAdjustColumns={onAdjustColumns} />);
+  render(<ResultStep job={value} currentUserId={currentUserId} onJobChange={onJobChange} onAdjustColumns={onAdjustColumns} />);
   return { onJobChange, onAdjustColumns };
 }
 
 describe('ResultStep', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (api.get as Mock).mockResolvedValue({ items: [], total: 0 });
+  });
 
   it('gravando: barra com o progresso das linhas aplicáveis', () => {
     renderStep(job({ status: 'applying', summary: { ...SUMMARY, appliedCount: 5 } }));
@@ -56,6 +69,27 @@ describe('ResultStep', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Cancelar importação' }));
     await waitFor(() => expect(onJobChange).toHaveBeenCalledWith(cancelled));
     expect(api.post).toHaveBeenCalledWith('imports/j1/cancel');
+  });
+
+  it('aguardando aprovação: mostra a simulação em leitura', async () => {
+    renderStep(job({ status: 'pending_approval' }));
+    expect(screen.getByTestId('summary-cards')).toHaveTextContent('Atualizar');
+    expect(screen.queryByRole('button', { name: 'Confirmar importação' })).not.toBeInTheDocument();
+    await waitFor(() => expect(api.get).toHaveBeenCalled());
+  });
+
+  it('aguardando aprovação vista por outro gerente: sem "Cancelar" e com o convite para decidir', () => {
+    renderStep(job({ status: 'pending_approval' }), 'u-approver');
+    expect(screen.queryByRole('button', { name: 'Cancelar importação' })).not.toBeInTheDocument();
+    expect(screen.getByText('Esta importação aguarda aprovação. Decida o pedido na fila de aprovações.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Ver pedidos' })).toHaveAttribute('href', '/aprovacoes');
+  });
+
+  it('"Nova importação" recarrega a página (não reaproveita o assistente do job anterior)', () => {
+    renderStep(job({ status: 'completed' }));
+    const link = screen.getByRole('link', { name: 'Nova importação' });
+    expect(link).toHaveAttribute('href', '/cadastros/importacoes/nova');
+    expect(link).not.toHaveAttribute('data-next-link');
   });
 
   it('concluída: contagens finais e atalhos', () => {

@@ -111,6 +111,19 @@ describe('ImportWizard', () => {
     expect(await screen.findByRole('button', { name: 'Confirmar importação' })).toBeInTheDocument();
   });
 
+  it('simulação travada: cancelar leva ao resultado "cancelada" e para de consultar', async () => {
+    (api.get as Mock).mockResolvedValue(job({ status: 'simulating' }));
+    (api.post as Mock).mockResolvedValue({ job: job({ status: 'cancelled' }) });
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<ImportWizard jobId="j1" currentUserId="u1" />);
+    await user.click(await screen.findByRole('button', { name: 'Cancelar importação' }));
+    expect(await screen.findByText('Importação cancelada.')).toBeInTheDocument();
+    expect(api.post).toHaveBeenCalledWith('imports/j1/cancel');
+    const calls = jobGets();
+    await act(() => vi.advanceTimersByTimeAsync(6000));
+    expect(jobGets()).toBe(calls);
+  });
+
   it('gravando → concluída mostra o resultado e para de consultar', async () => {
     let status: ImportJob['status'] = 'applying';
     (api.get as Mock).mockImplementation(async () =>

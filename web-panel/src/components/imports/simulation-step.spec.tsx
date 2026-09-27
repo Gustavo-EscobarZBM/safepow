@@ -62,11 +62,12 @@ function justificationRequired() {
   });
 }
 
-function renderStep(job = simulated()) {
+function renderStep(job = simulated(), extra: { readOnly?: boolean } = {}) {
   const onBack = vi.fn();
   const onConfirmed = vi.fn();
-  render(<SimulationStep job={job} onBack={onBack} onConfirmed={onConfirmed} />);
-  return { onBack, onConfirmed };
+  const onJobChange = vi.fn();
+  render(<SimulationStep job={job} onBack={onBack} onConfirmed={onConfirmed} onJobChange={onJobChange} {...extra} />);
+  return { onBack, onConfirmed, onJobChange };
 }
 
 describe('SimulationStep', () => {
@@ -79,6 +80,23 @@ describe('SimulationStep', () => {
     renderStep(simulated({ status: 'simulating', summary: null }));
     expect(screen.getByText('Simulando a planilha…')).toBeInTheDocument();
     expect(api.get).not.toHaveBeenCalled();
+  });
+
+  it('simulação travada: dá para cancelar a importação', async () => {
+    const cancelled = simulated({ status: 'cancelled' });
+    (api.post as Mock).mockResolvedValue({ job: cancelled });
+    const { onJobChange } = renderStep(simulated({ status: 'simulating', summary: null }));
+    await userEvent.click(screen.getByRole('button', { name: 'Cancelar importação' }));
+    await waitFor(() => expect(onJobChange).toHaveBeenCalledWith(cancelled));
+    expect(api.post).toHaveBeenCalledWith('imports/j1/cancel');
+  });
+
+  it('modo leitura (aguardando aprovação): mostra a simulação sem confirmar nem voltar', async () => {
+    renderStep(simulated({ status: 'pending_approval' }), { readOnly: true });
+    expect(screen.getByTestId('summary-cards')).toHaveTextContent('Criar');
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('imports/j1/rows?page=1&limit=20'));
+    expect(screen.queryByRole('button', { name: 'Confirmar importação' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Voltar e ajustar colunas' })).not.toBeInTheDocument();
   });
 
   it('mostra os cartões com as contagens e os avisos', async () => {
@@ -203,6 +221,18 @@ describe('SimulationStep', () => {
     await waitFor(() => expect(onConfirmed).toHaveBeenCalledWith(applying, false));
     expect((api.post as Mock).mock.calls[0][1]).toEqual({ archiveMissing: true });
     expect((api.post as Mock).mock.calls[1][1]).toEqual({ archiveMissing: true, confirmArchiveCount: 30 });
+  });
+
+  it('com a confirmação forte aberta, não dá para desmarcar "Arquivar"', async () => {
+    (api.post as Mock).mockRejectedValueOnce(
+      new ApiError(409, 'digite o número 30.', { errorCode: 'ARCHIVE_CONFIRMATION_REQUIRED', missingCount: 30 }),
+    );
+    renderStep(simulated({ summary: { ...SUMMARY, missingCount: 30 } }));
+    const checkbox = screen.getByRole('checkbox', { name: 'Arquivar os 30 produtos ausentes' });
+    await userEvent.click(checkbox);
+    await userEvent.click(screen.getByRole('button', { name: 'Confirmar importação' }));
+    await screen.findByRole('alertdialog');
+    expect(checkbox).toBeDisabled();
   });
 
   it('IMPORT_IN_PROGRESS mostra a mensagem e reabilita o botão', async () => {

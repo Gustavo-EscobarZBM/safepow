@@ -440,7 +440,14 @@ export class ImportJobsService {
 
   async cancel(id: string): Promise<ImportJob> {
     const job = await this.lockForTransition(id);
-    const cancellable = [ImportJobStatus.UPLOADED, ImportJobStatus.SIMULATED, ImportJobStatus.FAILED, ImportJobStatus.PENDING_APPROVAL];
+    // simulating: simulação travada (worker/Redis fora) — o simulador confere o status a cada bloco e para sozinho.
+    const cancellable = [
+      ImportJobStatus.UPLOADED,
+      ImportJobStatus.SIMULATING,
+      ImportJobStatus.SIMULATED,
+      ImportJobStatus.FAILED,
+      ImportJobStatus.PENDING_APPROVAL,
+    ];
     if (!cancellable.includes(job.status)) throw invalidState('Esta importação não pode mais ser cancelada.');
     const manager = getTenantManager();
     if (job.status === ImportJobStatus.PENDING_APPROVAL && job.changeRequestId) {
