@@ -19,6 +19,8 @@ import { assertKnownFields, ImportMappingsService, mappingInvalid } from './impo
 
 export const IMPORTS_QUEUE = 'imports';
 
+const REQUEST_CLOSED_MESSAGE = 'Pedido de aprovação recusado, cancelado ou vencido.';
+
 /** Acima desta fatia do catálogo, "arquivar ausentes" exige digitar o número (spec 2.4). */
 const STRONG_CONFIRMATION_PERCENT = 20;
 
@@ -388,7 +390,51 @@ export class ImportJobsService {
   async findOne(id: string): Promise<ImportJob> {
     const job = await getTenantManager().findOne(ImportJob, { where: { id } });
     if (!job) throw new NotFoundException('Importação não encontrada.');
+    await this.reconcileApproval(job);
     return job;
+  }
+
+  /** Estado do job para o pedido de aprovação (trava o job até o fim da decisão). */
+  async approvalSnapshot(jobId: string): Promise<Record<string, unknown> | null> {
+    const job = await getTenantManager().findOne(ImportJob, { where: { id: jobId }, lock: { mode: 'pessimistic_write' } });
+    return job ? approvalSnapshotOf(job) : null;
+  }
+
+  /** Aprovação do pedido (SP2): a gravação começa com quem aprovou como liberador. */
+  async startApprovedApply(jobId: string, approverUserId: string | null): Promise<void> {
+    const job = await getTenantManager().findOne(ImportJob, { where: { id: jobId }, lock: { mode: 'pessimistic_write' } });
+    if (!job || job.status !== ImportJobStatus.PENDING_APPROVAL) throw invalidState('A importação não está aguardando aprovação.');
+    await this.startApply(job, approverUserId);
+  }
+
+  /** Pedido recusado, cancelado ou vencido: a importação que esperava por ele é cancelada. */
+  async onRequestClosed(jobId: string): Promise<void> {
+    await getTenantManager().query(
+      `UPDATE import_jobs SET status = 'cancelled', "lastError" = $2, "completedAt" = now()
+        WHERE id = $1 AND status = 'pending_approval'`,
+      [jobId, REQUEST_CLOSED_MESSAGE],
+    );
+  }
+
+  /** O SP2 expira pedidos de forma preguiçosa; aqui a importação acompanha ao ser consultada. */
+  private async reconcileApproval(job: ImportJob): Promise<void> {
+    if (job.status !== ImportJobStatus.PENDING_APPROVAL || !job.changeRequestId) return;
+    const manager = getTenantManager();
+    const [request]: { status: string; overdue: boolean }[] = await manager.query(
+      `SELECT status, "expiresAt" < now() AS overdue FROM change_requests WHERE id = $1`,
+      [job.changeRequestId],
+    );
+    if (request && request.status === 'pending' && !request.overdue) return;
+    if (request?.status === 'pending') {
+      await manager.query(
+        `UPDATE change_requests SET status = 'expired', "decidedAt" = now(), "decisionNote" = 'Prazo de 7 dias vencido.'
+          WHERE id = $1 AND status = 'pending'`,
+        [job.changeRequestId],
+      );
+    }
+    await this.onRequestClosed(job.id);
+    job.status = ImportJobStatus.CANCELLED;
+    job.lastError = REQUEST_CLOSED_MESSAGE;
   }
 
   /** Antes da gravação dá para trocar aba/colunas e simular de novo; depois, não. */

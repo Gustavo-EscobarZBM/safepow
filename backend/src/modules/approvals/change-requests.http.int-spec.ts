@@ -1,8 +1,11 @@
+jest.mock('@nestjs/bullmq', () => require('../../test-utils/bullmq-mock'));
+
 import { INestApplication } from '@nestjs/common';
 import { adminQuery, closeTestConnections, seedCompany, seedProduct, truncateAll } from '../../test-utils/test-db';
 import { http, seedLoss, seedUser, setPolicies, startApprovalsApp, tokenFor } from '../../test-utils/approvals-test-app';
 import { ApprovalsController } from './approvals.controller';
 import { ApprovalsService } from './approvals.service';
+import { importJobsTestProviders } from '../../test-utils/imports-test-app';
 
 const JUSTIFICATION = 'Fornecedor reajustou a tabela';
 
@@ -17,7 +20,7 @@ describe('Fila de pedidos de aprovação (SP2, 2.2.1)', () => {
   let productId: string;
 
   beforeAll(async () => {
-    ({ app, baseUrl } = await startApprovalsApp({ controllers: [ApprovalsController], providers: [ApprovalsService] }));
+    ({ app, baseUrl } = await startApprovalsApp({ controllers: [ApprovalsController], providers: [ApprovalsService, ...importJobsTestProviders()] }));
   });
   afterAll(async () => {
     await app.close();

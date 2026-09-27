@@ -22,5 +22,6 @@ import { ImportsService, PRODUCTS_IMPORT_QUEUE } from './imports.service';
   ],
   controllers: [ImportsController, ImportJobsController, ImportMappingsController],
   providers: [ImportsService, ImportsProcessor, ImportJobsService, ImportMappingsService, ImportsQueueProcessor],
+  exports: [ImportJobsService],
 })
 export class ImportsModule {}

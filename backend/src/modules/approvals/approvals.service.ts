@@ -6,6 +6,7 @@ import { LossesService, lossSnapshot } from '../losses/losses.service';
 import { Product } from '../products/product.entity';
 import { ProductsService, productSnapshot, retroFixSnapshot } from '../products/products.service';
 import { computeRetroFixImpact } from '../products/products-retro-fix';
+import { ImportJobsService } from '../imports/import-jobs.service';
 import { ChangeRequest, ChangeRequestStatus } from './change-request.entity';
 
 export interface ChangeRequestView {
@@ -52,6 +53,7 @@ export class ApprovalsService {
   constructor(
     private readonly productsService: ProductsService,
     private readonly lossesService: LossesService,
+    private readonly importJobs: ImportJobsService,
   ) {}
 
   /** Expiração preguiçosa (sem job agendado). */
@@ -88,6 +90,7 @@ export class ApprovalsService {
     if (!current || !sameSnapshot(request.snapshot, current)) {
       // Devolve 200 com o pedido "expired": lançar um erro desfaria a marcação no rollback.
       await this.decide(request.id, 'expired', current ? 'O registro mudou desde o pedido.' : 'O registro não existe mais.', null);
+      await this.closeRelated(request);
       return this.findView(request.id);
     }
 
@@ -117,6 +120,7 @@ export class ApprovalsService {
 
     await manager.query(`SELECT set_config('app.audit_reason', $1, true)`, [note ?? '']);
     await this.decide(request.id, 'rejected', note ?? null, userId);
+    await this.closeRelated(request);
     await recordAuditEvent(manager, {
       companyId: request.companyId,
       entityType: 'change_request',
@@ -139,6 +143,7 @@ export class ApprovalsService {
       });
     }
     await this.decide(request.id, 'cancelled', 'Cancelado por quem pediu.', userId);
+    await this.closeRelated(request);
     return this.findView(request.id);
   }
 
@@ -187,8 +192,14 @@ export class ApprovalsService {
     return rows[0];
   }
 
+  /** Pedido encerrado sem aprovação: o que esperava por ele (hoje, só importações) é cancelado. */
+  private async closeRelated(request: ChangeRequest): Promise<void> {
+    if (request.entityType === 'import_job' && request.entityId) await this.importJobs.onRequestClosed(request.entityId);
+  }
+
   private async currentSnapshot(request: ChangeRequest): Promise<Record<string, unknown> | null> {
     const manager = getTenantManager();
+    if (request.entityType === 'import_job') return this.importJobs.approvalSnapshot(request.entityId!);
     if (request.operation === 'retro_fix') {
       // O que importa é a janela: perda nova ou corrigida por outro caminho invalida o pedido.
       const payload = request.payload as { from: string; to: string; unitPrice: number; costPrice: number };
@@ -234,6 +245,9 @@ export class ApprovalsService {
         return;
       case 'loss.update':
         await this.lossesService.update(request.entityId!, request.payload as never, skip);
+        return;
+      case 'import_job.import':
+        await this.importJobs.startApprovedApply(request.entityId!, getTenantContext().userId || null);
         return;
       case 'loss.delete':
         await this.lossesService.remove(request.entityId!, undefined, skip);

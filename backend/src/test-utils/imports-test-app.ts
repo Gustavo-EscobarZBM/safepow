@@ -42,7 +42,20 @@ export class FakeQueue {
   }
 }
 
-export async function startImportsApp(): Promise<{
+/**
+ * Providers para montar o ImportJobsService num app de teste que não exercita importação (ex.: a fila de aprovações
+ * do SP2, cujo serviço depende dele). O arquivo de teste precisa ter o jest.mock do @nestjs/bullmq.
+ */
+export function importJobsTestProviders(): any[] {
+  return [
+    ImportJobsService,
+    ImportMappingsService,
+    { provide: StorageService, useValue: new FakeStorage() },
+    { provide: getQueueToken(IMPORTS_QUEUE), useValue: new FakeQueue() },
+  ];
+}
+
+export async function startImportsApp(extra: { controllers?: any[]; providers?: any[] } = {}): Promise<{
   app: INestApplication;
   baseUrl: string;
   storage: FakeStorage;
@@ -51,12 +64,13 @@ export async function startImportsApp(): Promise<{
   const storage = new FakeStorage();
   const queue = new FakeQueue();
   const moduleRef = await Test.createTestingModule({
-    controllers: [ImportJobsController, ImportMappingsController],
+    controllers: [ImportJobsController, ImportMappingsController, ...(extra.controllers ?? [])],
     providers: [
       ImportJobsService,
       ImportMappingsService,
       { provide: StorageService, useValue: storage },
       { provide: getQueueToken(IMPORTS_QUEUE), useValue: queue },
+      ...(extra.providers ?? []),
     ],
   })
     .overrideGuard(SubscriptionGuard)
