@@ -1,9 +1,10 @@
 'use client';
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { Archive, ArchiveRestore, Pencil, Search } from 'lucide-react';
+import Link from 'next/link';
+import { Archive, ArchiveRestore, FileSpreadsheet, Pencil, Search } from 'lucide-react';
 import { api, ApiError } from '@/lib/api-client';
-import type { ImportJob, PriceHistoryEntry, Product, ProductStatusFilter } from '@/lib/types';
+import type { PriceHistoryEntry, Product, ProductStatusFilter } from '@/lib/types';
 import { PriceHistoryTimeline } from '@/components/price-history-timeline';
 import { HistoryDrawer } from '@/components/history-drawer';
 import { useApprovalFlow } from '@/hooks/use-approval-flow';
@@ -14,7 +15,7 @@ import { Pagination } from '@/components/pagination';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useProductSearch } from './use-product-search';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -223,72 +224,6 @@ export default function ProductsPage() {
   }
 
 
-  // --- Importação de planilha (Seção 5 do documento) ---
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [mappingBarcode, setMappingBarcode] = useState('Código de Barras');
-  const [mappingName, setMappingName] = useState('Descrição');
-  const [mappingPrice, setMappingPrice] = useState('Preço');
-  const [importJob, setImportJob] = useState<ImportJob | null>(null);
-  const [importError, setImportError] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, []);
-
-  function pollJobStatus(jobId: string) {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(async () => {
-      try {
-        const job = await api.get<ImportJob>(`products/import/${jobId}`);
-        setImportJob(job);
-        if (job.status === 'completed' || job.status === 'failed') {
-          if (pollRef.current) clearInterval(pollRef.current);
-          if (job.status === 'completed') productSearch.reload();
-        }
-      } catch {
-        if (pollRef.current) clearInterval(pollRef.current);
-      }
-    }, 2000);
-  }
-
-  async function handleImportSubmit(e: FormEvent) {
-    e.preventDefault();
-    const file = fileInputRef.current?.files?.[0];
-    if (!file) {
-      setImportError('Selecione um arquivo .xlsx.');
-      return;
-    }
-
-    setUploading(true);
-    setImportError(null);
-    setImportJob(null);
-
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append(
-        'mapping',
-        JSON.stringify({
-          barcodeColumn: mappingBarcode,
-          nameColumn: mappingName,
-          unitPriceColumn: mappingPrice || undefined,
-        }),
-      );
-
-      const { jobId } = await api.postForm<{ jobId: string }>('products/import', formData);
-      pollJobStatus(jobId);
-    } catch (e) {
-      setImportError(e instanceof ApiError ? e.message : 'Erro ao enviar a planilha.');
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  }
-
   return (
     <div className="space-y-6">
       {retroFixNotice && (
@@ -302,11 +237,20 @@ export default function ProductsPage() {
         </p>
       )}
       {approval.dialog}
-      <div>
-        <h1 className="font-display text-2xl text-foreground">Produtos</h1>
-        <p className="text-sm text-muted-foreground">
-          Cadastro manual de produtos. Para cadastro em massa via planilha, use a importação abaixo.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl text-foreground">Produtos</h1>
+          <p className="text-sm text-muted-foreground">
+            Cadastro manual de produtos. Para cadastro em massa, importe uma planilha.
+          </p>
+        </div>
+        <Link
+          href="/cadastros/importacoes/nova"
+          className="inline-flex h-9 items-center gap-2 rounded-md border px-4 text-sm font-medium transition-colors hover:bg-muted"
+        >
+          <FileSpreadsheet className="size-4" aria-hidden />
+          Importar planilha
+        </Link>
       </div>
 
       <Card>
@@ -366,75 +310,6 @@ export default function ProductsPage() {
               </Button>
             </div>
           </form>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Importar planilha de produtos</CardTitle>
-          <CardDescription>
-            Envie um arquivo .xlsx com o cadastro vindo do seu ERP. Informe abaixo os nomes exatos das
-            colunas na sua planilha — isso permite reaproveitar planilhas com nomenclaturas diferentes de
-            cada sistema (Seção 5.4 do documento de arquitetura).
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleImportSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div className="space-y-1.5">
-                <Label>Coluna do código de barras</Label>
-                <Input value={mappingBarcode} onChange={(e) => setMappingBarcode(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Coluna do nome/descrição</Label>
-                <Input value={mappingName} onChange={(e) => setMappingName(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Coluna do preço (opcional)</Label>
-                <Input value={mappingPrice} onChange={(e) => setMappingPrice(e.target.value)} />
-              </div>
-            </div>
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx"
-              className="block w-full text-sm text-muted-foreground file:mr-4 file:rounded-md file:border-0 file:bg-accent file:px-4 file:py-2 file:text-sm file:font-medium file:text-accent-foreground hover:file:bg-accent/70"
-            />
-
-            {importError && <p className="text-sm text-destructive">{importError}</p>}
-
-            <Button type="submit" disabled={uploading}>
-              {uploading ? 'Enviando...' : 'Enviar planilha'}
-            </Button>
-          </form>
-
-          {importJob && (
-            <div className="mt-4 rounded-md border bg-muted/50 p-4 text-sm">
-              <p className="font-medium">
-                Status:{' '}
-                {importJob.status === 'pending' && 'Aguardando processamento...'}
-                {importJob.status === 'processing' && 'Processando...'}
-                {importJob.status === 'completed' && 'Concluído'}
-                {importJob.status === 'failed' && 'Falhou'}
-              </p>
-              {importJob.status === 'completed' && (
-                <p className="mt-1 text-muted-foreground">
-                  {importJob.successCount} de {importJob.totalRows} linhas importadas com sucesso
-                  {importJob.errorCount > 0 && ` — ${importJob.errorCount} com erro`}.
-                </p>
-              )}
-              {importJob.errorReport && importJob.errorReport.length > 0 && (
-                <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto text-xs text-destructive">
-                  {importJob.errorReport.map((err, i) => (
-                    <li key={i}>
-                      Linha {err.row}: {err.error}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
         </CardContent>
       </Card>
 
