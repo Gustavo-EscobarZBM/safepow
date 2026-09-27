@@ -165,24 +165,7 @@ export interface Company {
   createdAt: string;
 }
 
-export type ImportJobStatus = 'pending' | 'processing' | 'completed' | 'failed';
-
-export interface ImportRowError {
-  row: number;
-  error: string;
-}
-
-export interface ImportJob {
-  id: string;
-  status: ImportJobStatus;
-  fileName: string;
-  totalRows: number | null;
-  successCount: number;
-  errorCount: number;
-  errorReport: ImportRowError[] | null;
-  createdAt: string;
-  completedAt: string | null;
-}
+export type { ImportJob, ImportJobStatus, ImportRowError } from '@/lib/imports';
 
 export interface TenantUser {
   id: string;

@@ -1,4 +1,4 @@
-import { ArrayMaxSize, IsArray, IsObject, IsString, Length } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsObject, IsOptional, IsString, Length } from 'class-validator';
 
 export class SaveImportMappingDto {
   @IsString()
@@ -21,7 +21,9 @@ export class SaveImportMappingDto {
 }
 
 export class PreviewImportDto {
+  /** Sem aba (retomada da tela, ou CSV) ⇒ a aba atual do job. */
+  @IsOptional()
   @IsString()
   @Length(1, 120)
-  sheetName: string;
+  sheetName?: string;
 }

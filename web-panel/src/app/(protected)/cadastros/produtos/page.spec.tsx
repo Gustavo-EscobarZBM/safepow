@@ -126,6 +126,24 @@ describe('ProductsPage — linha do tempo de preços no diálogo de edição', (
   });
 });
 
+describe('ProductsPage — importação pelo assistente (SP3, 3.2)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (api.get as Mock).mockImplementation(async (path: string) => {
+      if (path.startsWith('products/search')) return searchResult(products);
+      throw new Error(`unexpected path: ${path}`);
+    });
+  });
+
+  it('o card antigo saiu; "Importar planilha" leva ao assistente', async () => {
+    render(<ProductsPage />);
+    const link = await screen.findByRole('link', { name: /Importar planilha/ });
+    expect(link).toHaveAttribute('href', '/cadastros/importacoes/nova');
+    expect(screen.queryByText('Importar planilha de produtos')).not.toBeInTheDocument();
+    expect((api.get as Mock).mock.calls.some(([path]) => String(path).startsWith('products/import'))).toBe(false);
+  });
+});
+
 describe('ProductsPage — busca no servidor, abas e ciclo de vida (etapa 1.3)', () => {
   const archived = { ...products[1], isActive: false };
 

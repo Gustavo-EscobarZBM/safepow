@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '@/lib/api-client';
 import { POLICY_LABELS, describeRequest, modeDescription } from '@/lib/approvals';
@@ -227,6 +228,14 @@ export function AprovacoesClient({ currentUserId }: { currentUserId: string }) {
                       <li key={index}>{line}</li>
                     ))}
                   </ul>
+                  {request.entityType === 'import_job' && (
+                    <Link
+                      href={`/cadastros/importacoes/${request.entityId}`}
+                      className="inline-block text-xs text-primary underline-offset-4 hover:underline"
+                    >
+                      Ver simulação
+                    </Link>
+                  )}
                   <p className="text-xs text-muted-foreground">
                     Pedido por {request.requestedByName ?? 'usuário removido'} em {formatDateTimeBR(request.createdAt)}
                   </p>

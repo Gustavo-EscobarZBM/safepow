@@ -34,7 +34,6 @@ export interface ImportOptions {
   runId?: string;
   /** Execução do worker que está com o job (protege contra reentrega da mesma mensagem). */
   attemptId?: string;
-  autoApply?: boolean;
   /** Identifica a gravação enfileirada (mesmo papel do runId na simulação). */
   applyRunId?: string;
   /** Quando a gravação começou (a partir daí o job não volta a ser simulado). */

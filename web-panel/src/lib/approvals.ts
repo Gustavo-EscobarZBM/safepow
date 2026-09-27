@@ -69,6 +69,10 @@ export function describeRequest(request: ChangeRequest): string[] {
     ];
   }
   if (request.operation === 'delete') return ['Excluir a perda'];
+  if (request.operation === 'import') {
+    const archive = (request.payload as { archiveMissing?: boolean }).archiveMissing;
+    return [`Importar a planilha${archive ? ' e arquivar os produtos ausentes' : ''}`];
+  }
   return Object.entries(request.payload)
     .filter(([field, to]) => to !== undefined && !sameValue(field, request.snapshot[field], to))
     .map(([field, to]) => describeChange({ field, from: request.snapshot[field], to }, 'update'));

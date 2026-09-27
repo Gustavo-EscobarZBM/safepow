@@ -115,6 +115,30 @@ describe('AprovacoesClient', () => {
     await waitFor(() => expect((api.get as Mock).mock.calls.length).toBeGreaterThan(before));
   });
 
+  it('pedido de importação: descreve a importação e liga para a simulação', async () => {
+    mockGet([
+      request({
+        entityType: 'import_job',
+        entityId: 'j1',
+        entityLabel: 'produtos.xlsx',
+        operation: 'import',
+        payload: { archiveMissing: true },
+        snapshot: {},
+      }),
+    ]);
+    render(<AprovacoesClient currentUserId={ME} />);
+    const list = await requestsList();
+    expect(list).toHaveTextContent('Importar a planilha e arquivar os produtos ausentes');
+    expect(within(list).getByRole('link', { name: 'Ver simulação' })).toHaveAttribute('href', '/cadastros/importacoes/j1');
+  });
+
+  it('pedido de produto não tem link de simulação', async () => {
+    mockGet([request()]);
+    render(<AprovacoesClient currentUserId={ME} />);
+    const list = await requestsList();
+    expect(within(list).queryByRole('link', { name: 'Ver simulação' })).not.toBeInTheDocument();
+  });
+
   it('recusar envia para /reject', async () => {
     mockGet([request()]);
     (api.post as Mock).mockResolvedValue(request({ status: 'rejected' }));

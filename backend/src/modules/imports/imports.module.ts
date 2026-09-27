@@ -10,7 +10,6 @@ import { IMPORTS_QUEUE, ImportJobsService } from './import-jobs.service';
 import { ImportMappingsController } from './import-mappings.controller';
 import { ImportMappingsService } from './import-mappings.service';
 import { ImportsQueueProcessor } from './imports-queue.processor';
-import { ImportsController } from './imports.controller';
 
 @Module({
   imports: [
@@ -18,7 +17,7 @@ import { ImportsController } from './imports.controller';
     BullModule.registerQueue({ name: IMPORTS_QUEUE }),
     UploadsModule,
   ],
-  controllers: [ImportsController, ImportJobsController, ImportMappingsController],
+  controllers: [ImportJobsController, ImportMappingsController],
   providers: [ImportJobsService, ImportMappingsService, ImportsQueueProcessor],
   exports: [ImportJobsService],
 })

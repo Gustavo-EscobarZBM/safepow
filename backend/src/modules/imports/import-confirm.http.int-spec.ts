@@ -223,6 +223,21 @@ describe('Confirmação da importação (SP3, 3.1.2)', () => {
     expect(error.errorCode).toBe('INVALID_STATE');
   });
 
+  it('cancelar simulação travada (simulating sem worker): cancela, libera a empresa e a mensagem velha não grava nada', async () => {
+    const { body } = await uploadFile(baseUrl, token, await xlsxBuffer({ Produtos: ROWS }), 'erp.xlsx');
+    await http(baseUrl, 'POST', `/api/imports/${body.job.id}/simulate`, token, { mapping: MAPPING, updateFields: ['name'] });
+    const message = queue.calls[queue.calls.length - 1].data;
+    const cancelled = await http(baseUrl, 'POST', `/api/imports/${body.job.id}/cancel`, token);
+    expect(cancelled.status).toBe(201);
+    expect(cancelled.body.job.status).toBe('cancelled');
+
+    await new ImportSimulator(await appDataSource(), storage as unknown as StorageService).run(message);
+    expect((await job(body.job.id)).status).toBe('cancelled');
+    const [{ n }] = await adminQuery(`SELECT count(*)::int AS n FROM import_rows WHERE "jobId" = $1`, [body.job.id]);
+    expect(n).toBe(0);
+    expect((await simulated()).length).toBeGreaterThan(0);
+  });
+
   it('tentar de novo job cujas linhas foram expurgadas ⇒ 409 (nunca arquiva o catálogo por falta de linhas)', async () => {
     const jobId = await simulated();
     await apply(jobId, { archiveMissing: true, confirmArchiveCount: 1 });

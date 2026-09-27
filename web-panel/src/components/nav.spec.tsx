@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Nav } from './nav';
 import { api } from '@/lib/api-client';
 
@@ -92,5 +93,11 @@ describe('Nav', () => {
     await waitFor(() => expect(api.get).toHaveBeenCalled());
     expect(screen.getByRole('link', { name: /Aprovações/ })).toBeInTheDocument();
     expect(screen.queryByLabelText(/pedidos pendentes/)).not.toBeInTheDocument();
+  });
+
+  it('gerente vê "Importações" no grupo Cadastros', async () => {
+    render(<Nav user={{ id: '1', name: 'Ana', role: 'manager', companyId: 'c1' }} />);
+    await userEvent.click(screen.getByRole('button', { name: /Cadastros/ }));
+    expect(screen.getByRole('link', { name: 'Importações' })).toHaveAttribute('href', '/cadastros/importacoes');
   });
 });

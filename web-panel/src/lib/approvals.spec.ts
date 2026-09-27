@@ -60,6 +60,14 @@ describe('isPendingApproval', () => {
 });
 
 describe('describeRequest', () => {
+  it('importação: uma linha, com o arquivamento quando pedido', () => {
+    const base: Partial<ChangeRequest> = { policy: 'price_change', entityType: 'import_job', entityId: 'j1', operation: 'import', snapshot: {} };
+    expect(describeRequest(request({ ...base, payload: { archiveMissing: false } }))).toEqual(['Importar a planilha']);
+    expect(describeRequest(request({ ...base, payload: { archiveMissing: true } }))).toEqual([
+      'Importar a planilha e arquivar os produtos ausentes',
+    ]);
+  });
+
   it('update: uma linha por campo que muda (numérico comparado como número)', () => {
     const lines = describeRequest(
       request({ snapshot: { unitPrice: '10.00', name: 'Arroz' }, payload: { unitPrice: 15, name: 'Arroz' } }),

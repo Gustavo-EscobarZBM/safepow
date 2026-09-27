@@ -173,12 +173,26 @@ describe('POST /imports — upload com prévia (SP3, 3.1.1)', () => {
     const { status, body } = await http(baseUrl, 'POST', `/api/imports/${uploaded.job.id}/preview`, token, { sheetName: 'Aba2' });
     expect(status).toBe(201);
     expect(body).toMatchObject({ headers: ['EAN', 'Nome'], sample: [['1', 'X']], suggestedMapping: { barcode: 'EAN', name: 'Nome' } });
+    expect(body.fields).toHaveLength(5);
+    expect(body.fields[0]).toEqual(expect.objectContaining({ key: expect.any(String), label: expect.any(String) }));
     const [job] = await adminQuery(`SELECT "sheetName", headers FROM import_jobs WHERE id = $1`, [uploaded.job.id]);
     expect(job).toEqual({ sheetName: 'Aba2', headers: ['EAN', 'Nome'] });
 
     const missing = await http(baseUrl, 'POST', `/api/imports/${uploaded.job.id}/preview`, token, { sheetName: 'Nope' });
     expect(missing.status).toBe(400);
     expect(missing.body.errorCode).toBe('UNSUPPORTED_FILE');
+  });
+
+  it('preview sem sheetName (retomada) usa a aba do job; CSV também funciona', async () => {
+    const { body: uploaded } = await uploadFile(baseUrl, token, await erpSpreadsheet(2), 'a.xlsx');
+    const xlsx = await http(baseUrl, 'POST', `/api/imports/${uploaded.job.id}/preview`, token, {});
+    expect(xlsx.status).toBe(201);
+    expect(xlsx.body.headers).toEqual(uploaded.headers);
+
+    const { body: csv } = await uploadFile(baseUrl, token, csvBuffer([['EAN', 'Nome'], ['1', 'X']], { delimiter: ',', encoding: 'utf-8' }), 'a.csv');
+    const resumed = await http(baseUrl, 'POST', `/api/imports/${csv.job.id}/preview`, token, {});
+    expect(resumed.status).toBe(201);
+    expect(resumed.body.headers).toEqual(['EAN', 'Nome']);
   });
 
   it('preview durante a simulação ⇒ 409 INVALID_STATE', async () => {

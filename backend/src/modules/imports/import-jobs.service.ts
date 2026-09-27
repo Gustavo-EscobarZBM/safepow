@@ -12,7 +12,6 @@ import { ImportResourceHandler, MissingPage } from './engine/types';
 import { ListImportRowsDto, PageQueryDto } from './dto/list-import-rows.dto';
 import { SimulateImportDto } from './dto/simulate-import.dto';
 import { ApplyImportDto } from './dto/apply-import.dto';
-import { ColumnMappingDto } from './dto/column-mapping.dto';
 import { applyApprovalGate, loadCompanyPolicies } from '../approvals/approval-gate';
 import { ImportRow } from './import-row.entity';
 import { getImportHandler } from './handlers';
@@ -58,13 +57,13 @@ export interface PreviewResult {
   sample: (string | null)[][];
   suggestedMapping: Record<string, string>;
   matchedMapping: { id: string; name: string } | null;
+  fields: { key: string; label: string; required: boolean; updatable: boolean }[];
 }
 
 export interface UploadResult extends PreviewResult {
   job: ImportJob;
   sheets: string[];
   duplicateOf: { jobId: string; fileName: string; appliedAt: string | null; createdByName: string | null } | null;
-  fields: { key: string; label: string; required: boolean; updatable: boolean }[];
 }
 
 /** ImportFileError (motor) ⇒ 400 com errorCode. */
@@ -157,39 +156,6 @@ export class ImportJobsService {
     return Buffer.from(await workbook.xlsx.writeBuffer());
   }
 
-  /** Endpoint antigo da tela de produtos: sobe, simula e grava direto (autoApply) com o mapeamento digitado. */
-  async legacyImport(file: Express.Multer.File | undefined, legacy: ColumnMappingDto): Promise<{ jobId: string }> {
-    const { job } = await this.upload(file, 'products');
-    const mapping: Record<string, string> = { barcode: legacy.barcodeColumn, name: legacy.nameColumn };
-    if (legacy.skuColumn) mapping.sku = legacy.skuColumn;
-    if (legacy.unitPriceColumn) mapping.unitPrice = legacy.unitPriceColumn;
-    const updateFields = Object.keys(mapping).filter((field) => field !== 'barcode');
-    await this.simulate(job.id, { mapping, updateFields }, { autoApply: true });
-    return { jobId: job.id };
-  }
-
-  /** Status no formato antigo (a tela antiga só entende processing/completed/failed). */
-  async legacyStatus(id: string) {
-    const job = await this.findOne(id);
-    const running = [ImportJobStatus.UPLOADED, ImportJobStatus.SIMULATING, ImportJobStatus.APPLYING];
-    const status = job.status === ImportJobStatus.COMPLETED ? 'completed' : running.includes(job.status) ? 'processing' : 'failed';
-    const autoWaiting = job.status === ImportJobStatus.SIMULATED && job.options?.autoApply && !job.lastError;
-    return {
-      id: job.id,
-      status: autoWaiting ? 'processing' : status,
-      fileName: job.fileName,
-      totalRows: job.totalRows,
-      successCount: job.successCount,
-      errorCount: job.errorCount,
-      errorReport:
-        status === 'failed' && !autoWaiting && !job.errorReport?.length
-          ? [{ row: 0, error: job.lastError ?? 'Importação não concluída.' }]
-          : job.errorReport,
-      createdAt: job.createdAt,
-      completedAt: job.completedAt,
-    };
-  }
-
   async upload(file: Express.Multer.File | undefined, resource: string): Promise<UploadResult> {
     if (!file) throw new BadRequestException('Nenhum arquivo enviado (campo "file").');
     const handler = getImportHandler(resource);
@@ -249,32 +215,32 @@ export class ImportJobsService {
       sheets,
       ...preview,
       duplicateOf: await this.findDuplicate(job),
-      fields: handler.fields.map(({ key: fieldKey, label, required, updatable }) => ({ key: fieldKey, label, required, updatable })),
     };
   }
 
-  async preview(id: string, sheetName: string): Promise<PreviewResult> {
+  async preview(id: string, requestedSheet?: string): Promise<PreviewResult> {
     const job = await this.findOne(id);
+    const sheetName = requestedSheet ?? job.sheetName ?? undefined;
     this.assertEditable(job);
     const buffer = await this.storage.downloadBuffer(job.storageKey);
     let preview: PreviewResult;
     try {
       preview = await this.previewOf(getImportHandler(job.resource), buffer, {
         format: job.format ?? 'xlsx',
-        sheetName: job.format === 'csv' ? null : sheetName,
+        sheetName: job.format === 'csv' ? null : (sheetName ?? null),
         delimiter: job.delimiter,
       });
     } catch (error) {
       throw toHttpError(error);
     }
-    if (job.format !== 'csv') job.sheetName = sheetName;
+    if (job.format !== 'csv' && sheetName) job.sheetName = sheetName;
     job.headers = preview.headers;
     await getTenantManager().save(job);
     return preview;
   }
 
   /** Valida o mapeamento e enfileira a simulação (só depois do commit — spec 2.4, "enfileirar só depois do commit"). */
-  async simulate(id: string, dto: SimulateImportDto, extra: { autoApply?: boolean } = {}): Promise<ImportJob> {
+  async simulate(id: string, dto: SimulateImportDto): Promise<ImportJob> {
     const job = await this.findOne(id);
     this.assertEditable(job, true);
     const handler = getImportHandler(job.resource);
@@ -307,7 +273,7 @@ export class ImportJobsService {
       sheetName,
       headers,
       mapping: dto.mapping,
-      options: { updateFields: dto.updateFields, runId, ...extra },
+      options: { updateFields: dto.updateFields, runId },
       status: ImportJobStatus.SIMULATING,
       summary: null,
       errorReport: null,
@@ -474,7 +440,14 @@ export class ImportJobsService {
 
   async cancel(id: string): Promise<ImportJob> {
     const job = await this.lockForTransition(id);
-    const cancellable = [ImportJobStatus.UPLOADED, ImportJobStatus.SIMULATED, ImportJobStatus.FAILED, ImportJobStatus.PENDING_APPROVAL];
+    // simulating: simulação travada (worker/Redis fora) — o simulador confere o status a cada bloco e para sozinho.
+    const cancellable = [
+      ImportJobStatus.UPLOADED,
+      ImportJobStatus.SIMULATING,
+      ImportJobStatus.SIMULATED,
+      ImportJobStatus.FAILED,
+      ImportJobStatus.PENDING_APPROVAL,
+    ];
     if (!cancellable.includes(job.status)) throw invalidState('Esta importação não pode mais ser cancelada.');
     const manager = getTenantManager();
     if (job.status === ImportJobStatus.PENDING_APPROVAL && job.changeRequestId) {
@@ -575,8 +548,9 @@ export class ImportJobsService {
 
   private async previewOf(handler: ImportResourceHandler, buffer: Buffer, source: TableSource): Promise<PreviewResult> {
     const { headers, sample } = await peekTable(buffer, source);
+    const fields = handler.fields.map(({ key, label, required, updatable }) => ({ key, label, required, updatable }));
     const saved = await this.mappings.findByFingerprint(handler.resource, headerFingerprint(headers));
-    if (!saved) return { headers, sample, suggestedMapping: suggestMapping(headers, handler.fields), matchedMapping: null };
+    if (!saved) return { headers, sample, suggestedMapping: suggestMapping(headers, handler.fields), matchedMapping: null, fields };
 
     // O fingerprint casa pelo cabeçalho normalizado; o mapeamento salvo guarda a grafia do arquivo antigo
     // ("Cód. Barras"). Cada valor é traduzido para a grafia do arquivo atual ("COD BARRAS").
@@ -587,7 +561,7 @@ export class ImportJobsService {
       if (current) suggestedMapping[field] = current;
     }
     await this.mappings.touch(saved.id);
-    return { headers, sample, suggestedMapping, matchedMapping: { id: saved.id, name: saved.name } };
+    return { headers, sample, suggestedMapping, matchedMapping: { id: saved.id, name: saved.name }, fields };
   }
 
   private async findDuplicate(job: ImportJob): Promise<UploadResult['duplicateOf']> {
