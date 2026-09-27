@@ -389,3 +389,14 @@ merge em `main` + push. Migrations novas só entram no banco de desenvolvimento 
 - Desvios (ledger): "Arquivados" no resultado = ausentes quando `archiveMissing` (o backend não guarda o número);
   simulação que falhou mostra o `lastError` acima das colunas; depois do upload a URL vira `/importacoes/:id` por
   `history.replaceState`.
+- Revisão final (subagente opus): 3 importantes (+1 menor re-graduado) corrigidos com TDD — "Nova importação" reaproveitava
+  o assistente do job anterior (agora recarrega a página); o aprovador via "Aguardando aprovação" sem a simulação e com
+  "Cancelar" (agora simulação em leitura, e só o autor cancela); simulação travada sem saída prendia a empresa
+  (`cancel` aceita `simulating`); desmarcar "Arquivar" com a confirmação forte aberta gravava sem arquivar. Totais
+  finais: backend unitário 31/288, integração 36/279; web 58/339; tsc e build limpos.
+- **Menores abertos da 3.2:** trocar de aba depois de voltar da simulação zera a sugestão; falha ao trocar de aba
+  deixa a aba nova com a prévia antiga; `truncate` em `th/td` da amostra não corta; aviso "Enviado para aprovação"
+  fica depois de cancelar; `pending_approval` sem consulta periódica; erro permanente no polling não aparece;
+  `rolling_back`/`rolled_back` caem em "Importação cancelada." (tela própria na 3.4); prévia que falha no F5 sem
+  "tentar de novo"; `backend/README.md` e comentário do controller citam `/products/import`; teste do 404 não sobe o
+  módulo real; linhas "Criar" mostram "— → valor".
