@@ -331,6 +331,26 @@ export const productsImportHandler: ImportResourceHandler<ExistingProduct> = {
     return { items, total: count };
   },
 
+  async countActive(manager: EntityManager): Promise<number> {
+    const [row]: { n: number }[] = await manager.query(`SELECT count(*)::int AS n FROM products WHERE "isActive"`);
+    return row.n;
+  },
+
+  /** Mesma regra do priceChangeExceeds (SP2): variação estritamente acima do limite sobre um valor anterior > 0. */
+  async countSensitivePriceChanges(manager: EntityManager, jobId: string, thresholdPercent: number): Promise<number> {
+    const exceeds = (field: string) => `(
+      diff ? '${field}'
+      AND (diff->'${field}'->>'from')::numeric > 0
+      AND abs(round((diff->'${field}'->>'to')::numeric * 100) - round((diff->'${field}'->>'from')::numeric * 100)) * 100
+          > $2 * round((diff->'${field}'->>'from')::numeric * 100))`;
+    const [row]: { n: number }[] = await manager.query(
+      `SELECT count(*)::int AS n FROM import_rows
+        WHERE "jobId" = $1 AND action IN ('update', 'reactivate') AND (${exceeds('unitPrice')} OR ${exceeds('costPrice')})`,
+      [jobId, thresholdPercent],
+    );
+    return row.n;
+  },
+
   applyBatch,
 
   archiveMissingBatch,

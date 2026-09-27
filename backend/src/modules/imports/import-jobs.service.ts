@@ -10,12 +10,22 @@ import { listSheets, peekTable, TableSource } from './engine/sheet-reader';
 import { ImportResourceHandler, MissingPage } from './engine/types';
 import { ListImportRowsDto, PageQueryDto } from './dto/list-import-rows.dto';
 import { SimulateImportDto } from './dto/simulate-import.dto';
+import { ApplyImportDto } from './dto/apply-import.dto';
+import { applyApprovalGate, loadCompanyPolicies } from '../approvals/approval-gate';
 import { ImportRow } from './import-row.entity';
 import { getImportHandler } from './handlers';
 import { ImportJob, ImportJobStatus } from './import-job.entity';
 import { assertKnownFields, ImportMappingsService, mappingInvalid } from './import-mappings.service';
 
 export const IMPORTS_QUEUE = 'imports';
+
+/** Acima desta fatia do catálogo, "arquivar ausentes" exige digitar o número (spec 2.4). */
+const STRONG_CONFIRMATION_PERCENT = 20;
+
+/** O que o pedido de aprovação guarda para detectar que o job mudou (re-simulado) antes da decisão. */
+export function approvalSnapshotOf(job: ImportJob, status: ImportJobStatus = job.status): Record<string, unknown> {
+  return { jobId: job.id, simulatedAt: job.simulatedAt ? new Date(job.simulatedAt).toISOString() : null, status };
+}
 
 export interface ImportQueueData {
   jobId: string;
@@ -243,6 +253,138 @@ export class ImportJobsService {
     }
   }
 
+  /**
+   * Confirmação (spec 2.4): trava por empresa, confirmação forte de "arquivar ausentes", políticas de aprovação do
+   * SP2 (a importação inteira vira um pedido) e, se nada impedir, começa a gravação.
+   */
+  async apply(id: string, dto: ApplyImportDto): Promise<{ job: ImportJob } | { status: 'pending'; changeRequestId: string; job: ImportJob }> {
+    const { userId } = getTenantContext();
+    const manager = getTenantManager();
+    const job = await this.lockForTransition(id);
+    if (job.status !== ImportJobStatus.SIMULATED) throw invalidState('Simule a importação antes de confirmar.');
+    await this.assertNoOtherActive(job.id);
+
+    const handler = getImportHandler(job.resource);
+    const archiveMissing = !!dto.archiveMissing;
+    let confirmArchiveCount: number | undefined;
+    let archiveWithHistory = 0;
+    if (archiveMissing) {
+      const missing = await handler.countMissing(manager, job.id);
+      archiveWithHistory = missing.withHistory;
+      const active = await handler.countActive(manager);
+      if (missing.count * 100 > STRONG_CONFIRMATION_PERCENT * active) {
+        if (dto.confirmArchiveCount !== missing.count) {
+          throw new ConflictException({
+            statusCode: 409,
+            errorCode: 'ARCHIVE_CONFIRMATION_REQUIRED',
+            message: `Arquivar ${missing.count} registros ausentes (mais de ${STRONG_CONFIRMATION_PERCENT}% do catálogo) exige confirmação: digite o número ${missing.count}.`,
+            missingCount: missing.count,
+          });
+        }
+        confirmArchiveCount = missing.count;
+      }
+    }
+    job.options = { ...job.options!, archiveMissing, confirmArchiveCount };
+
+    // Recontado agora (e não o da simulação): a política pode ter sido ligada ou mudado de limite depois.
+    const policies = await loadCompanyPolicies();
+    const priceSensitive =
+      policies.price_change.enabled &&
+      (await handler.countSensitivePriceChanges(manager, job.id, policies.price_change.thresholdPercent)) > 0;
+    const archiveSensitive = policies.archive_with_history.enabled && archiveMissing && archiveWithHistory > 0;
+    if (priceSensitive || archiveSensitive) {
+      const pending = await applyApprovalGate({
+        policy: priceSensitive ? 'price_change' : 'archive_with_history',
+        entityType: 'import_job',
+        entityId: job.id,
+        entityLabel: job.fileName,
+        operation: 'import',
+        payload: { archiveMissing, confirmArchiveCount: confirmArchiveCount ?? null },
+        snapshot: approvalSnapshotOf(job, ImportJobStatus.PENDING_APPROVAL),
+        justification: dto.justification,
+      });
+      if (pending) {
+        job.status = ImportJobStatus.PENDING_APPROVAL;
+        job.changeRequestId = pending.changeRequestId;
+        await manager.save(job);
+        return { status: 'pending', changeRequestId: pending.changeRequestId, job };
+      }
+    }
+
+    await this.startApply(job, userId || null);
+    return { job };
+  }
+
+  /** Começa (ou recomeça) a gravação: status applying, novo applyRunId e mensagem na fila depois do commit. */
+  async startApply(job: ImportJob, actorUserId: string | null): Promise<void> {
+    const runId = randomUUID();
+    job.status = ImportJobStatus.APPLYING;
+    job.lastError = null;
+    job.options = {
+      ...job.options!,
+      applyRunId: runId,
+      applyStartedAt: job.options?.applyStartedAt ?? new Date().toISOString(),
+      ...(actorUserId ? { actorUserId } : {}),
+    };
+    await getTenantManager().save(job);
+    const companyId = job.companyId;
+    afterCommit(async () => {
+      await this.queue.add('apply', { jobId: job.id, companyId, runId }, { removeOnComplete: 1000, removeOnFail: 1000 });
+    });
+  }
+
+  async retry(id: string): Promise<ImportJob> {
+    const { userId } = getTenantContext();
+    const job = await this.lockForTransition(id);
+    if (job.status !== ImportJobStatus.FAILED || !job.options?.applyStartedAt) {
+      throw invalidState('Só dá para tentar de novo uma gravação que falhou.');
+    }
+    await this.assertNoOtherActive(job.id);
+    await this.startApply(job, userId || null);
+    return job;
+  }
+
+  async cancel(id: string): Promise<ImportJob> {
+    const job = await this.lockForTransition(id);
+    const cancellable = [ImportJobStatus.UPLOADED, ImportJobStatus.SIMULATED, ImportJobStatus.FAILED, ImportJobStatus.PENDING_APPROVAL];
+    if (!cancellable.includes(job.status)) throw invalidState('Esta importação não pode mais ser cancelada.');
+    const manager = getTenantManager();
+    if (job.status === ImportJobStatus.PENDING_APPROVAL && job.changeRequestId) {
+      await manager.query(
+        `UPDATE change_requests SET status = 'cancelled', "decidedAt" = now(), "decisionNote" = 'Importação cancelada.'
+          WHERE id = $1 AND status = 'pending'`,
+        [job.changeRequestId],
+      );
+    }
+    job.status = ImportJobStatus.CANCELLED;
+    job.completedAt = new Date();
+    return manager.save(job);
+  }
+
+  /** Serializa as transições da empresa (duas confirmações ao mesmo tempo viram fila) e trava o job. */
+  private async lockForTransition(id: string): Promise<ImportJob> {
+    const { companyId } = getTenantContext();
+    const manager = getTenantManager();
+    await manager.query(`SELECT pg_advisory_xact_lock(hashtext('imports:' || $1))`, [companyId]);
+    const job = await manager.findOne(ImportJob, { where: { id }, lock: { mode: 'pessimistic_write' } });
+    if (!job) throw new NotFoundException('Importação não encontrada.');
+    return job;
+  }
+
+  private async assertNoOtherActive(jobId: string): Promise<void> {
+    const rows = await getTenantManager().query(
+      `SELECT 1 FROM import_jobs WHERE id <> $1 AND status IN ('simulating', 'applying', 'pending_approval', 'rolling_back') LIMIT 1`,
+      [jobId],
+    );
+    if (rows.length) {
+      throw new ConflictException({
+        statusCode: 409,
+        errorCode: 'IMPORT_IN_PROGRESS',
+        message: 'Já existe uma importação em andamento. Aguarde terminar ou cancele-a.',
+      });
+    }
+  }
+
   async findOne(id: string): Promise<ImportJob> {
     const job = await getTenantManager().findOne(ImportJob, { where: { id } });
     if (!job) throw new NotFoundException('Importação não encontrada.');
@@ -253,7 +395,7 @@ export class ImportJobsService {
   protected assertEditable(job: ImportJob, allowSimulating = false): void {
     const editable = [ImportJobStatus.UPLOADED, ImportJobStatus.SIMULATED, ImportJobStatus.FAILED];
     if (allowSimulating) editable.push(ImportJobStatus.SIMULATING);
-    if (!editable.includes(job.status) || job.appliedAt) throw invalidState();
+    if (!editable.includes(job.status) || job.appliedAt || job.options?.applyStartedAt) throw invalidState();
   }
 
   private async previewOf(handler: ImportResourceHandler, buffer: Buffer, source: TableSource): Promise<PreviewResult> {
