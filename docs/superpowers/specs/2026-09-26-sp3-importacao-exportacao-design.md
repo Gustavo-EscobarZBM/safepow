@@ -364,4 +364,13 @@ merge em `main` + push. Migrations novas só entram no banco de desenvolvimento 
 - Desvios (ledger): gravação em `INSERT` + `UPDATE … FROM unnest` com `COALESCE` (não `INSERT … ON CONFLICT`);
   limpeza preguiçosa por empresa (não job diário); mudanças de preço sensíveis recontadas na confirmação com a
   política atual; aprovar pedido cujo job mudou também cancela a importação; `cancel` aceita `failed`.
+- Revisão final (subagente opus): 6 importantes corrigidos com TDD — retry de job expurgado (arquivaria o catálogo);
+  política de preço contra o preço atual; pedido vencido não bloqueia; `applying` parado pode ser retomado; falha
+  antes de gravar volta a aceitar simulação; ausentes só entre produtos que já existiam na simulação. Totais finais:
+  unitário 31/288, integração 36/280.
+- **Menores abertos da 3.1.2:** tela antiga ignora a trava de importação ativa e `lockExisting` sem `ORDER BY`
+  (risco de deadlock); `legacyStatus` esconde o `lastError` quando há erros de linha; falha no `prepareAutoApply`
+  deixa a tela antiga em "processing"; `simulate` sem trava pode sobrescrever confirmação concorrente; limpeza grava
+  `summary` sem `counts`; limpeza sem lote dentro de `GET /imports`; `options.actorUserId` só informativo; fila única
+  com concorrência 1 entre empresas.
 
