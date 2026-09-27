@@ -350,3 +350,18 @@ merge em `main` + push. Migrations novas só entram no banco de desenvolvimento 
   preview/simulate; linhas da simulação anterior visíveis durante a nova; com Redis fora o simulate espera minutos;
   relatório CSV montado inteiro em memória; `Content-Disposition` com `%20`; cabeçalhos repetidos/vazios não
   mapeáveis; ordem do `suggestMapping` ≠ spec (sem efeito hoje); objetos órfãos no storage.
+
+### 3.1.2 — motor: confirmação, aprovações e gravação (2026-09-27)
+- Entregue: `ImportApplier` (lotes de 500, cada um numa transação; recálculo contra o catálogo atual; `before`
+  guardado; `applyRunId` + `attemptId`); `POST /imports/:id/apply|retry|cancel`; trava por empresa
+  (`pg_advisory_xact_lock`) + 409 `IMPORT_IN_PROGRESS`; confirmação forte de ausentes (> 20%); portão de aprovação
+  do SP2 (1 pedido por importação, `entityType import_job`, `operation import`) com aprovação/recusa/cancelamento/
+  vencimento refletidos no job; `GET /imports` (histórico); `GET /imports/template`; limpeza preguiçosa 30/7 dias;
+  `POST/GET /products/import` (tela antiga) sobre o motor novo com gravação automática; fluxo antigo removido.
+- **Carga:** 50 mil linhas (10 mil existentes + 40 mil novas, com custo) — simulação **8,9 s**, gravação **16,4 s**.
+- Testes: backend unitário 31/288; integração 36/273; tsc e build limpos. Verificado ponta a ponta no backend local
+  (worker real): upload → simulação → confirmação → `completed`; tela antiga `processing → completed`.
+- Desvios (ledger): gravação em `INSERT` + `UPDATE … FROM unnest` com `COALESCE` (não `INSERT … ON CONFLICT`);
+  limpeza preguiçosa por empresa (não job diário); mudanças de preço sensíveis recontadas na confirmação com a
+  política atual; aprovar pedido cujo job mudou também cancela a importação; `cancel` aceita `failed`.
+
