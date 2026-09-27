@@ -19,7 +19,7 @@ import { Roles, RolesGuard } from '../../common/guards/roles.guard';
 import { SubscriptionGuard } from '../../common/guards/subscription.guard';
 import { UserRole } from '../users/user.entity';
 import { PreviewImportDto } from './dto/import-mapping.dto';
-import { ListImportRowsDto, PageQueryDto } from './dto/list-import-rows.dto';
+import { ListImportRowsDto, ListImportsDto, PageQueryDto } from './dto/list-import-rows.dto';
 import { SimulateImportDto } from './dto/simulate-import.dto';
 import { ApplyImportDto } from './dto/apply-import.dto';
 import { ImportJobsService } from './import-jobs.service';
@@ -37,6 +37,20 @@ export class ImportJobsController {
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE_BYTES } }))
   upload(@UploadedFile() file: Express.Multer.File | undefined, @Body('resource') resource?: string) {
     return this.imports.upload(file, resource || 'products');
+  }
+
+  @Get()
+  list(@Query() query: ListImportsDto) {
+    return this.imports.list(query);
+  }
+
+  // Antes de ':id' (que exige UUID).
+  @Get('template')
+  @Header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+  async template(@Query('resource') resource = 'products') {
+    return new StreamableFile(await this.imports.template(resource), {
+      disposition: `attachment; filename="modelo-importacao-${resource}.xlsx"`,
+    });
   }
 
   @Get(':id')

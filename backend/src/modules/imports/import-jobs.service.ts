@@ -2,6 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { createHash, randomUUID } from 'crypto';
+import * as ExcelJS from 'exceljs';
 import { afterCommit, getTenantContext, getTenantManager } from '../../common/tenant/tenant-storage';
 import { StorageService } from '../uploads/storage.service';
 import { assertSafeZip, decodeCsv, detectDelimiter, detectFormat, ImportFileError } from './engine/file-sniff';
@@ -11,6 +12,7 @@ import { ImportResourceHandler, MissingPage } from './engine/types';
 import { ListImportRowsDto, PageQueryDto } from './dto/list-import-rows.dto';
 import { SimulateImportDto } from './dto/simulate-import.dto';
 import { ApplyImportDto } from './dto/apply-import.dto';
+import { ColumnMappingDto } from './dto/column-mapping.dto';
 import { applyApprovalGate, loadCompanyPolicies } from '../approvals/approval-gate';
 import { ImportRow } from './import-row.entity';
 import { getImportHandler } from './handlers';
@@ -18,6 +20,18 @@ import { ImportJob, ImportJobStatus } from './import-job.entity';
 import { assertKnownFields, ImportMappingsService, mappingInvalid } from './import-mappings.service';
 
 export const IMPORTS_QUEUE = 'imports';
+
+const PURGE_ROWS_AFTER_DAYS = 30;
+const ABANDON_AFTER_DAYS = 7;
+
+/** Linha de exemplo do modelo (a coluna do código vai como texto para o Excel não comer zeros à esquerda). */
+const TEMPLATE_EXAMPLE: Record<string, string | number> = {
+  barcode: '7891234567895',
+  name: 'Arroz tipo 1 5kg',
+  sku: 'ARZ-5KG',
+  unitPrice: 25.9,
+  costPrice: 18.4,
+};
 
 const REQUEST_CLOSED_MESSAGE = 'Pedido de aprovação recusado, cancelado ou vencido.';
 
@@ -72,6 +86,99 @@ export class ImportJobsService {
     @InjectQueue(IMPORTS_QUEUE) private readonly queue: Queue<ImportQueueData>,
   ) {}
 
+  /** Histórico de importações da empresa (spec 3), mais novas primeiro. Também roda a limpeza preguiçosa. */
+  async list(query: { resource?: string; page?: number; limit?: number }): Promise<{
+    items: (ImportJob & { createdByName: string | null })[];
+    total: number;
+  }> {
+    await this.purgeExpired();
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const qb = getTenantManager()
+      .createQueryBuilder(ImportJob, 'j')
+      .leftJoin('users', 'u', 'u.id = j."createdByUserId"')
+      .addSelect('u.name', 'createdByName')
+      .where('j.resource = :resource', { resource: query.resource ?? 'products' })
+      .orderBy('j.createdAt', 'DESC')
+      .addOrderBy('j.id', 'DESC')
+      .offset((page - 1) * limit)
+      .limit(limit);
+    const [{ entities, raw }, total] = await Promise.all([qb.getRawAndEntities(), qb.getCount()]);
+    const items = entities.map((job, i) => Object.assign(job, { createdByName: (raw[i]?.createdByName as string | null) ?? null }));
+    for (const job of items) await this.reconcileApproval(job);
+    return { items, total };
+  }
+
+  /**
+   * Limpeza preguiçosa da empresa atual (spec 1.5, feita no upload e na listagem em vez de um job diário — um job
+   * sem empresa não enxergaria nada com a RLS forçada): linhas de preparação de importações com mais de 30 dias
+   * (fim da janela de reversão) e importações paradas há mais de 7 dias sem confirmação.
+   */
+  async purgeExpired(): Promise<void> {
+    const manager = getTenantManager();
+    await manager.query(
+      `DELETE FROM import_rows r USING import_jobs j
+        WHERE r."jobId" = j.id AND COALESCE(j."appliedAt", j."createdAt") < now() - interval '${PURGE_ROWS_AFTER_DAYS} days'`,
+    );
+    await manager.query(
+      `UPDATE import_jobs SET summary = COALESCE(summary, '{}'::jsonb) || '{"rowsPurged": true}'::jsonb
+        WHERE COALESCE("appliedAt", "createdAt") < now() - interval '${PURGE_ROWS_AFTER_DAYS} days'
+          AND COALESCE(summary->>'rowsPurged', 'false') <> 'true'`,
+    );
+    await manager.query(
+      `UPDATE import_jobs SET status = 'cancelled', "completedAt" = now(),
+              "lastError" = 'Importação abandonada: mais de ${ABANDON_AFTER_DAYS} dias sem confirmação.'
+        WHERE status IN ('uploaded', 'simulated') AND "createdAt" < now() - interval '${ABANDON_AFTER_DAYS} days'`,
+    );
+  }
+
+  /** Planilha modelo (spec 3): cabeçalhos canônicos do handler, coluna da chave em formato texto e um exemplo. */
+  async template(resource: string): Promise<Buffer> {
+    const handler = getImportHandler(resource);
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Importação');
+    const keyIndex = handler.fields.findIndex((f) => f.key === handler.keyField) + 1;
+    sheet.getColumn(keyIndex).numFmt = '@';
+    sheet.addRow(handler.fields.map((f) => f.label));
+    sheet.getRow(1).font = { bold: true };
+    sheet.addRow(handler.fields.map((f) => TEMPLATE_EXAMPLE[f.key] ?? null));
+    handler.fields.forEach((_, i) => (sheet.getColumn(i + 1).width = 22));
+    return Buffer.from(await workbook.xlsx.writeBuffer());
+  }
+
+  /** Endpoint antigo da tela de produtos: sobe, simula e grava direto (autoApply) com o mapeamento digitado. */
+  async legacyImport(file: Express.Multer.File | undefined, legacy: ColumnMappingDto): Promise<{ jobId: string }> {
+    const { job } = await this.upload(file, 'products');
+    const mapping: Record<string, string> = { barcode: legacy.barcodeColumn, name: legacy.nameColumn };
+    if (legacy.skuColumn) mapping.sku = legacy.skuColumn;
+    if (legacy.unitPriceColumn) mapping.unitPrice = legacy.unitPriceColumn;
+    const updateFields = Object.keys(mapping).filter((field) => field !== 'barcode');
+    await this.simulate(job.id, { mapping, updateFields }, { autoApply: true });
+    return { jobId: job.id };
+  }
+
+  /** Status no formato antigo (a tela antiga só entende processing/completed/failed). */
+  async legacyStatus(id: string) {
+    const job = await this.findOne(id);
+    const running = [ImportJobStatus.UPLOADED, ImportJobStatus.SIMULATING, ImportJobStatus.APPLYING];
+    const status = job.status === ImportJobStatus.COMPLETED ? 'completed' : running.includes(job.status) ? 'processing' : 'failed';
+    const autoWaiting = job.status === ImportJobStatus.SIMULATED && job.options?.autoApply && !job.lastError;
+    return {
+      id: job.id,
+      status: autoWaiting ? 'processing' : status,
+      fileName: job.fileName,
+      totalRows: job.totalRows,
+      successCount: job.successCount,
+      errorCount: job.errorCount,
+      errorReport:
+        status === 'failed' && !autoWaiting && !job.errorReport?.length
+          ? [{ row: 0, error: job.lastError ?? 'Importação não concluída.' }]
+          : job.errorReport,
+      createdAt: job.createdAt,
+      completedAt: job.completedAt,
+    };
+  }
+
   async upload(file: Express.Multer.File | undefined, resource: string): Promise<UploadResult> {
     if (!file) throw new BadRequestException('Nenhum arquivo enviado (campo "file").');
     const handler = getImportHandler(resource);
@@ -99,6 +206,7 @@ export class ImportJobsService {
 
     const { companyId, userId } = getTenantContext();
     const manager = getTenantManager();
+    await this.purgeExpired();
     const fileHash = createHash('sha256').update(buffer).digest('hex');
     const { key } = await this.storage.uploadBuffer({
       companyId: companyId!,
@@ -155,7 +263,7 @@ export class ImportJobsService {
   }
 
   /** Valida o mapeamento e enfileira a simulação (só depois do commit — spec 2.4, "enfileirar só depois do commit"). */
-  async simulate(id: string, dto: SimulateImportDto): Promise<ImportJob> {
+  async simulate(id: string, dto: SimulateImportDto, extra: { autoApply?: boolean } = {}): Promise<ImportJob> {
     const job = await this.findOne(id);
     this.assertEditable(job, true);
     const handler = getImportHandler(job.resource);
@@ -188,7 +296,7 @@ export class ImportJobsService {
       sheetName,
       headers,
       mapping: dto.mapping,
-      options: { updateFields: dto.updateFields, runId },
+      options: { updateFields: dto.updateFields, runId, ...extra },
       status: ImportJobStatus.SIMULATING,
       summary: null,
       errorReport: null,

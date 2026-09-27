@@ -11,17 +11,15 @@ import { ImportMappingsController } from './import-mappings.controller';
 import { ImportMappingsService } from './import-mappings.service';
 import { ImportsQueueProcessor } from './imports-queue.processor';
 import { ImportsController } from './imports.controller';
-import { ImportsProcessor } from './imports.processor';
-import { ImportsService, PRODUCTS_IMPORT_QUEUE } from './imports.service';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([ImportJob, Product, Company]),
-    BullModule.registerQueue({ name: PRODUCTS_IMPORT_QUEUE }, { name: IMPORTS_QUEUE }),
+    BullModule.registerQueue({ name: IMPORTS_QUEUE }),
     UploadsModule,
   ],
   controllers: [ImportsController, ImportJobsController, ImportMappingsController],
-  providers: [ImportsService, ImportsProcessor, ImportJobsService, ImportMappingsService, ImportsQueueProcessor],
+  providers: [ImportJobsService, ImportMappingsService, ImportsQueueProcessor],
   exports: [ImportJobsService],
 })
 export class ImportsModule {}
