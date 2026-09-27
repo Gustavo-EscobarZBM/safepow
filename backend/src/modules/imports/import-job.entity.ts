@@ -35,6 +35,12 @@ export interface ImportOptions {
   /** Execução do worker que está com o job (protege contra reentrega da mesma mensagem). */
   attemptId?: string;
   autoApply?: boolean;
+  /** Identifica a gravação enfileirada (mesmo papel do runId na simulação). */
+  applyRunId?: string;
+  /** Quando a gravação começou (a partir daí o job não volta a ser simulado). */
+  applyStartedAt?: string;
+  /** Quem liberou a gravação (o próprio autor ou quem aprovou o pedido). */
+  actorUserId?: string;
 }
 
 export interface ImportSummary {

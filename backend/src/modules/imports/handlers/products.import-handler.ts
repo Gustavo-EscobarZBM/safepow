@@ -1,7 +1,7 @@
 import { EntityManager } from 'typeorm';
 import { priceChangeExceeds } from '../../approvals/approval-policies';
 import { normalizeBarcode, normalizeName, normalizeSku, parseMoney } from '../engine/normalize';
-import { ImportResourceHandler, MissingPage, PlanContext, RowPlan } from '../engine/types';
+import { AppliedRow, ApplyRow, ArchivedRecord, ImportResourceHandler, MissingPage, PlanContext, RowPlan } from '../engine/types';
 
 /** Handler de importação de produtos (SP3, spec 2.2–2.3 e 5). Chave: código de barras. */
 
@@ -100,6 +100,155 @@ const MISSING_FROM = `
  WHERE p."isActive"
    AND NOT EXISTS (SELECT 1 FROM import_rows r WHERE r."jobId" = $1 AND r.key = p.barcode)`;
 
+/** Colunas que a importação pode escrever (whitelist: os nomes entram no SQL). */
+const WRITABLE_COLUMNS = ['name', 'sku', 'unitPrice', 'costPrice'] as const;
+
+async function lockExisting(manager: EntityManager, keys: string[]): Promise<Map<string, ExistingProduct>> {
+  if (keys.length === 0) return new Map();
+  const rows: ExistingProduct[] = await manager.query(
+    `SELECT id, barcode, name, sku, "unitPrice", "costPrice", "isActive", "updatedAt"
+       FROM products WHERE barcode = ANY($1) FOR UPDATE`,
+    [keys],
+  );
+  return new Map(rows.map((row) => [row.barcode, { ...row, unitPrice: Number(row.unitPrice), costPrice: Number(row.costPrice) }]));
+}
+
+function beforeOf(product: ExistingProduct): Record<string, unknown> {
+  return {
+    name: product.name,
+    sku: product.sku,
+    unitPrice: product.unitPrice,
+    costPrice: product.costPrice,
+    isActive: product.isActive,
+    updatedAt: new Date(product.updatedAt).toISOString(),
+  };
+}
+
+/** No TypeORM, UPDATE … RETURNING via manager.query devolve [linhas, contagem]; INSERT devolve só as linhas. */
+function returned<T>(result: unknown): T[] {
+  return (Array.isArray(result) && Array.isArray(result[0]) ? result[0] : result) as T[];
+}
+
+const asText = (value: unknown) => (value === undefined || value === null ? null : String(value));
+const asMoney = (value: unknown) => (value === undefined || value === null ? null : Number(value));
+
+/**
+ * Grava um lote (SP3, spec 2.5): relê e trava os produtos, recalcula a ação contra o estado ATUAL (o catálogo pode
+ * ter mudado desde a simulação) e grava criações com INSERT e atualizações/reativações com UPDATE … FROM unnest.
+ * Valor não informado (null) nunca sobrescreve: COALESCE com o valor atual. Criação que colide com um produto
+ * criado por fora no meio do lote é recalculada como existente (até 2 passadas).
+ */
+async function applyBatch(
+  manager: EntityManager,
+  rows: ApplyRow[],
+  ctx: { mappedFields: string[]; updateFields: string[] },
+): Promise<AppliedRow[]> {
+  const results = new Map<string, AppliedRow>();
+  const columns = WRITABLE_COLUMNS.filter((c) => ctx.updateFields.includes(c) && ctx.mappedFields.includes(c));
+  let pending = rows;
+  for (let pass = 0; pass < 2 && pending.length; pass++) {
+    const existing = await lockExisting(manager, pending.map((r) => r.key));
+    const creates: ApplyRow[] = [];
+    const updates: { row: ApplyRow; product: ExistingProduct; action: 'update' | 'reactivate' }[] = [];
+    for (const row of pending) {
+      const product = existing.get(row.key);
+      const { action } = plan(row.values, product, { ...ctx, priceThresholdPercent: null });
+      if (action === 'create') creates.push(row);
+      else if (action === 'update' || action === 'reactivate') updates.push({ row, product: product!, action });
+      else results.set(row.rowId, { rowId: row.rowId, entityId: product?.id ?? null, appliedAction: 'unchanged', before: null, updatedAt: null });
+    }
+
+    if (updates.length) {
+      const set = columns.map((c) => `"${c}" = COALESCE(v."${c}", p."${c}")`).join(', ');
+      const updated = returned<{ id: string; updatedAt: Date }>(await manager.query(
+        `UPDATE products p
+            SET ${set ? `${set}, ` : ''}"isActive" = true, "updatedAt" = clock_timestamp()
+           FROM unnest($1::uuid[], $2::text[], $3::text[], $4::numeric[], $5::numeric[]) AS v(id, name, sku, "unitPrice", "costPrice")
+          WHERE p.id = v.id
+          RETURNING p.id, p."updatedAt"`,
+        [
+          updates.map((u) => u.product.id),
+          updates.map((u) => asText(u.row.values.name)),
+          updates.map((u) => asText(u.row.values.sku)),
+          updates.map((u) => asMoney(u.row.values.unitPrice)),
+          updates.map((u) => asMoney(u.row.values.costPrice)),
+        ],
+      ));
+      const updatedAt = new Map(updated.map((u) => [u.id, u.updatedAt]));
+      for (const { row, product, action } of updates) {
+        results.set(row.rowId, {
+          rowId: row.rowId,
+          entityId: product.id,
+          appliedAction: action,
+          before: beforeOf(product),
+          updatedAt: updatedAt.get(product.id) ?? null,
+        });
+      }
+    }
+
+    const conflicted: ApplyRow[] = [];
+    if (creates.length) {
+      const inserted: { id: string; barcode: string; updatedAt: Date }[] = await manager.query(
+        `INSERT INTO products ("companyId", barcode, name, sku, "unitPrice", "costPrice", "updatedAt")
+         SELECT NULLIF(current_setting('app.current_company_id', true), '')::uuid, v.barcode, v.name, v.sku,
+                COALESCE(v."unitPrice", 0), COALESCE(v."costPrice", 0), clock_timestamp()
+           FROM unnest($1::text[], $2::text[], $3::text[], $4::numeric[], $5::numeric[]) AS v(barcode, name, sku, "unitPrice", "costPrice")
+         ON CONFLICT ("companyId", barcode) DO NOTHING
+         RETURNING id, barcode, "updatedAt"`,
+        [
+          creates.map((r) => r.key),
+          creates.map((r) => asText(r.values.name)),
+          creates.map((r) => asText(r.values.sku)),
+          creates.map((r) => asMoney(r.values.unitPrice)),
+          creates.map((r) => asMoney(r.values.costPrice)),
+        ],
+      );
+      const byKey = new Map(inserted.map((i) => [i.barcode, i]));
+      for (const row of creates) {
+        const created = byKey.get(row.key);
+        if (created) {
+          results.set(row.rowId, { rowId: row.rowId, entityId: created.id, appliedAction: 'create', before: null, updatedAt: created.updatedAt });
+        } else {
+          conflicted.push(row);
+        }
+      }
+    }
+    pending = conflicted;
+  }
+  for (const row of pending) {
+    results.set(row.rowId, {
+      rowId: row.rowId,
+      entityId: null,
+      appliedAction: 'error',
+      before: null,
+      updatedAt: null,
+      error: 'O produto foi criado por outra pessoa durante a importação. Importe de novo.',
+    });
+  }
+  return rows.map((row) => results.get(row.rowId)!);
+}
+
+async function archiveMissingBatch(manager: EntityManager, jobId: string, limit: number): Promise<ArchivedRecord[]> {
+  const picked: ExistingProduct[] = await manager.query(
+    `SELECT p.id, p.barcode, p.name, p.sku, p."unitPrice", p."costPrice", p."isActive", p."updatedAt"
+     ${MISSING_FROM}
+     ORDER BY p.id LIMIT $2 FOR UPDATE OF p`,
+    [jobId, limit],
+  );
+  if (picked.length === 0) return [];
+  const archived = returned<{ id: string; updatedAt: Date }>(await manager.query(
+    `UPDATE products SET "isActive" = false, "updatedAt" = clock_timestamp() WHERE id = ANY($1) RETURNING id, "updatedAt"`,
+    [picked.map((p) => p.id)],
+  ));
+  const updatedAt = new Map(archived.map((a) => [a.id, a.updatedAt]));
+  return picked.map((p) => ({
+    entityId: p.id,
+    key: p.barcode,
+    before: beforeOf({ ...p, unitPrice: Number(p.unitPrice), costPrice: Number(p.costPrice) }),
+    updatedAt: updatedAt.get(p.id)!,
+  }));
+}
+
 export const productsImportHandler: ImportResourceHandler<ExistingProduct> = {
   resource: 'products',
   keyField: 'barcode',
@@ -181,4 +330,8 @@ export const productsImportHandler: ImportResourceHandler<ExistingProduct> = {
     const { count } = await this.countMissing(manager, jobId);
     return { items, total: count };
   },
+
+  applyBatch,
+
+  archiveMissingBatch,
 };
