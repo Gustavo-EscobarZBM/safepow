@@ -183,6 +183,18 @@ describe('POST /imports — upload com prévia (SP3, 3.1.1)', () => {
     expect(missing.body.errorCode).toBe('UNSUPPORTED_FILE');
   });
 
+  it('preview sem sheetName (retomada) usa a aba do job; CSV também funciona', async () => {
+    const { body: uploaded } = await uploadFile(baseUrl, token, await erpSpreadsheet(2), 'a.xlsx');
+    const xlsx = await http(baseUrl, 'POST', `/api/imports/${uploaded.job.id}/preview`, token, {});
+    expect(xlsx.status).toBe(201);
+    expect(xlsx.body.headers).toEqual(uploaded.headers);
+
+    const { body: csv } = await uploadFile(baseUrl, token, csvBuffer([['EAN', 'Nome'], ['1', 'X']], { delimiter: ',', encoding: 'utf-8' }), 'a.csv');
+    const resumed = await http(baseUrl, 'POST', `/api/imports/${csv.job.id}/preview`, token, {});
+    expect(resumed.status).toBe(201);
+    expect(resumed.body.headers).toEqual(['EAN', 'Nome']);
+  });
+
   it('preview durante a simulação ⇒ 409 INVALID_STATE', async () => {
     const { body: uploaded } = await uploadFile(baseUrl, token, await erpSpreadsheet(2), 'a.xlsx');
     await adminQuery(`UPDATE import_jobs SET status = 'simulating' WHERE id = $1`, [uploaded.job.id]);

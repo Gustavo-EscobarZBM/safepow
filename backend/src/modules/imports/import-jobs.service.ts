@@ -218,21 +218,22 @@ export class ImportJobsService {
     };
   }
 
-  async preview(id: string, sheetName: string): Promise<PreviewResult> {
+  async preview(id: string, requestedSheet?: string): Promise<PreviewResult> {
     const job = await this.findOne(id);
+    const sheetName = requestedSheet ?? job.sheetName ?? undefined;
     this.assertEditable(job);
     const buffer = await this.storage.downloadBuffer(job.storageKey);
     let preview: PreviewResult;
     try {
       preview = await this.previewOf(getImportHandler(job.resource), buffer, {
         format: job.format ?? 'xlsx',
-        sheetName: job.format === 'csv' ? null : sheetName,
+        sheetName: job.format === 'csv' ? null : (sheetName ?? null),
         delimiter: job.delimiter,
       });
     } catch (error) {
       throw toHttpError(error);
     }
-    if (job.format !== 'csv') job.sheetName = sheetName;
+    if (job.format !== 'csv' && sheetName) job.sheetName = sheetName;
     job.headers = preview.headers;
     await getTenantManager().save(job);
     return preview;
