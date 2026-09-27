@@ -39,6 +39,8 @@ export interface ImportOptions {
   applyRunId?: string;
   /** Quando a gravação começou (a partir daí o job não volta a ser simulado). */
   applyStartedAt?: string;
+  /** Última vez que a gravação foi enfileirada (para detectar gravação parada). */
+  applyRequestedAt?: string;
   /** Quem liberou a gravação (o próprio autor ou quem aprovou o pedido). */
   actorUserId?: string;
 }

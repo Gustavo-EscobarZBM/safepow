@@ -22,6 +22,8 @@ import { assertKnownFields, ImportMappingsService, mappingInvalid } from './impo
 export const IMPORTS_QUEUE = 'imports';
 
 const PURGE_ROWS_AFTER_DAYS = 30;
+/** Gravação sem progresso há mais que isto pode ser tentada de novo (o novo applyRunId invalida a mensagem velha). */
+const STUCK_APPLY_MS = 5 * 60 * 1000;
 const ABANDON_AFTER_DAYS = 7;
 
 /** Linha de exemplo do modelo (a coluna do código vai como texto para o Excel não comer zeros à esquerda). */
@@ -116,13 +118,22 @@ export class ImportJobsService {
    */
   async purgeExpired(): Promise<void> {
     const manager = getTenantManager();
+    const old = `COALESCE("appliedAt", "createdAt") < now() - interval '${PURGE_ROWS_AFTER_DAYS} days'`;
+    // Gravação que falhou e ficou esquecida deixa de poder ser retomada antes de perder as linhas.
+    await manager.query(
+      `UPDATE import_jobs SET status = 'cancelled', "completedAt" = now(),
+              "lastError" = COALESCE("lastError", 'Importação abandonada depois de falhar.')
+        WHERE status = 'failed' AND ${old}`,
+    );
+    // Só jobs terminais perdem as linhas de preparação (nunca um em andamento).
     await manager.query(
       `DELETE FROM import_rows r USING import_jobs j
-        WHERE r."jobId" = j.id AND COALESCE(j."appliedAt", j."createdAt") < now() - interval '${PURGE_ROWS_AFTER_DAYS} days'`,
+        WHERE r."jobId" = j.id AND j.status IN ('completed', 'cancelled', 'rolled_back')
+          AND COALESCE(j."appliedAt", j."createdAt") < now() - interval '${PURGE_ROWS_AFTER_DAYS} days'`,
     );
     await manager.query(
       `UPDATE import_jobs SET summary = COALESCE(summary, '{}'::jsonb) || '{"rowsPurged": true}'::jsonb
-        WHERE COALESCE("appliedAt", "createdAt") < now() - interval '${PURGE_ROWS_AFTER_DAYS} days'
+        WHERE status IN ('completed', 'cancelled', 'rolled_back') AND ${old}
           AND COALESCE(summary->>'rowsPurged', 'false') <> 'true'`,
     );
     await manager.query(
@@ -400,7 +411,7 @@ export class ImportJobsService {
     const policies = await loadCompanyPolicies();
     const priceSensitive =
       policies.price_change.enabled &&
-      (await handler.countSensitivePriceChanges(manager, job.id, policies.price_change.thresholdPercent)) > 0;
+      (await handler.countSensitivePriceChanges(manager, job.id, policies.price_change.thresholdPercent, job.options?.updateFields ?? [])) > 0;
     const archiveSensitive = policies.archive_with_history.enabled && archiveMissing && archiveWithHistory > 0;
     if (priceSensitive || archiveSensitive) {
       const pending = await applyApprovalGate({
@@ -434,6 +445,7 @@ export class ImportJobsService {
       ...job.options!,
       applyRunId: runId,
       applyStartedAt: job.options?.applyStartedAt ?? new Date().toISOString(),
+      applyRequestedAt: new Date().toISOString(),
       ...(actorUserId ? { actorUserId } : {}),
     };
     await getTenantManager().save(job);
@@ -446,8 +458,14 @@ export class ImportJobsService {
   async retry(id: string): Promise<ImportJob> {
     const { userId } = getTenantContext();
     const job = await this.lockForTransition(id);
-    if (job.status !== ImportJobStatus.FAILED || !job.options?.applyStartedAt) {
-      throw invalidState('Só dá para tentar de novo uma gravação que falhou.');
+    if (job.summary?.rowsPurged) {
+      // Sem as linhas de preparação, "arquivar ausentes" veria o catálogo inteiro como ausente.
+      throw invalidState('Esta importação é antiga demais para continuar. Importe a planilha de novo.');
+    }
+    const requestedAt = Date.parse(job.options?.applyRequestedAt ?? job.options?.applyStartedAt ?? '');
+    const stuck = job.status === ImportJobStatus.APPLYING && requestedAt < Date.now() - STUCK_APPLY_MS;
+    if (!(job.status === ImportJobStatus.FAILED && job.options?.applyStartedAt) && !stuck) {
+      throw invalidState('Só dá para tentar de novo uma gravação que falhou ou está parada.');
     }
     await this.assertNoOtherActive(job.id);
     await this.startApply(job, userId || null);
@@ -482,6 +500,9 @@ export class ImportJobsService {
   }
 
   private async assertNoOtherActive(jobId: string): Promise<void> {
+    // Pedido vencido que ninguém abriu não pode travar a empresa: reconcilia antes de checar.
+    const waiting = await getTenantManager().find(ImportJob, { where: { status: ImportJobStatus.PENDING_APPROVAL } });
+    for (const other of waiting) if (other.id !== jobId) await this.reconcileApproval(other);
     const rows = await getTenantManager().query(
       `SELECT 1 FROM import_jobs WHERE id <> $1 AND status IN ('simulating', 'applying', 'pending_approval', 'rolling_back') LIMIT 1`,
       [jobId],

@@ -31,7 +31,12 @@ async function prepareAutoApply(dataSource: DataSource, data: ImportQueueData): 
     const policies = normalizePolicies(company?.approvalPolicies);
     const sensitive =
       policies.price_change.enabled &&
-      (await getImportHandler(job.resource).countSensitivePriceChanges(m, job.id, policies.price_change.thresholdPercent)) > 0;
+      (await getImportHandler(job.resource).countSensitivePriceChanges(
+        m,
+        job.id,
+        policies.price_change.thresholdPercent,
+        options.updateFields ?? [],
+      )) > 0;
     if (sensitive) {
       await m.update(ImportJob, { id: job.id }, { lastError: AUTO_APPLY_NEEDS_APPROVAL });
       return null;

@@ -159,4 +159,26 @@ describe('Endpoint antigo pelo motor novo, histórico, modelo e limpeza (SP3, 3.
     expect((await adminQuery(`SELECT summary FROM import_jobs WHERE id = $1`, [old[0].id]))[0].summary.rowsPurged).toBe(true);
     expect((await adminQuery(`SELECT status FROM import_jobs WHERE id = $1`, [stale[0].id]))[0].status).toBe('cancelled');
   });
+
+  it('limpeza: gravação que falhou há mais de 30 dias é cancelada antes de perder as linhas; em andamento não perde linhas', async () => {
+    const failed = await adminQuery(
+      `INSERT INTO import_jobs ("companyId", "fileName", "storageKey", status, "createdAt", options, summary)
+       VALUES ($1, 'falhou.xlsx', 'k', 'failed', now() - interval '40 days', $2::jsonb, '{}') RETURNING id`,
+      [companyId, JSON.stringify({ applyStartedAt: '2026-08-01T00:00:00Z' })],
+    );
+    const applying = await adminQuery(
+      `INSERT INTO import_jobs ("companyId", "fileName", "storageKey", status, "createdAt", summary)
+       VALUES ($1, 'rodando.xlsx', 'k', 'applying', now() - interval '40 days', '{}') RETURNING id`,
+      [companyId],
+    );
+    for (const id of [failed[0].id, applying[0].id]) {
+      await adminQuery(`INSERT INTO import_rows ("companyId", "jobId", "rowNumber", action) VALUES ($1, $2, 2, 'create')`, [companyId, id]);
+    }
+
+    await http(baseUrl, 'GET', '/api/imports?resource=products', token);
+
+    expect((await adminQuery(`SELECT status FROM import_jobs WHERE id = $1`, [failed[0].id]))[0].status).toBe('cancelled');
+    expect(await adminQuery(`SELECT 1 FROM import_rows WHERE "jobId" = $1`, [failed[0].id])).toHaveLength(0);
+    expect(await adminQuery(`SELECT 1 FROM import_rows WHERE "jobId" = $1`, [applying[0].id])).toHaveLength(1);
+  });
 });

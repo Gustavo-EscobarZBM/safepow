@@ -223,6 +223,65 @@ describe('Confirmação da importação (SP3, 3.1.2)', () => {
     expect(error.errorCode).toBe('INVALID_STATE');
   });
 
+  it('tentar de novo job cujas linhas foram expurgadas ⇒ 409 (nunca arquiva o catálogo por falta de linhas)', async () => {
+    const jobId = await simulated();
+    await apply(jobId, { archiveMissing: true, confirmArchiveCount: 1 });
+    await adminQuery(`UPDATE import_jobs SET status = 'failed', summary = summary || $2::jsonb WHERE id = $1`, [
+      jobId,
+      JSON.stringify({ rowsPurged: true }),
+    ]);
+    const { status, body } = await http(baseUrl, 'POST', `/api/imports/${jobId}/retry`, token);
+    expect(status).toBe(409);
+    expect(body.errorCode).toBe('INVALID_STATE');
+  });
+
+  it('gravação presa em applying há mais de 5 minutos pode ser tentada de novo; recém-iniciada não', async () => {
+    const jobId = await simulated();
+    await apply(jobId);
+    expect((await http(baseUrl, 'POST', `/api/imports/${jobId}/retry`, token)).status).toBe(409);
+
+    const before = (await job(jobId)).options.applyRunId;
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    await adminQuery(`UPDATE import_jobs SET options = options || $2::jsonb WHERE id = $1`, [
+      jobId,
+      JSON.stringify({ applyRequestedAt: tenMinutesAgo }),
+    ]);
+    queue.calls.length = 0;
+    const { status } = await http(baseUrl, 'POST', `/api/imports/${jobId}/retry`, token);
+    expect(status).toBe(202);
+    expect((await job(jobId)).options.applyRunId).not.toBe(before);
+    expect(queue.calls).toHaveLength(1);
+  });
+
+  it('pedido vencido de outra importação não bloqueia: a importação que esperava é cancelada', async () => {
+    await seedUser(companyId);
+    await setPolicies(companyId, { price_change: { enabled: true, thresholdPercent: 10 } });
+    const stuck = await simulated();
+    const { body } = await apply(stuck, { justification: 'x' });
+    await adminQuery(`UPDATE change_requests SET "expiresAt" = now() - interval '1 day' WHERE id = $1`, [body.changeRequestId]);
+    await setPolicies(companyId, {});
+
+    const next = await simulated();
+    expect((await apply(next)).status).toBe(202);
+    expect((await job(stuck)).status).toBe('cancelled');
+  });
+
+  describe('política de preço contra o preço ATUAL (não o da simulação)', () => {
+    beforeEach(() => setPolicies(companyId, { price_change: { enabled: true, thresholdPercent: 20 } }));
+
+    it('preço editado depois da simulação torna a mudança sensível', async () => {
+      const jobId = await simulated([['EAN', 'Descrição', 'Preço'], ['100', 'Arroz', '10,50']]);
+      await adminQuery(`UPDATE products SET "unitPrice" = 5 WHERE barcode = '100'`);
+      expect((await apply(jobId)).body.errorCode).toBe('JUSTIFICATION_REQUIRED');
+    });
+
+    it('preço editado depois da simulação pode deixar de ser sensível', async () => {
+      const jobId = await simulated([['EAN', 'Descrição', 'Preço'], ['100', 'Arroz', '15,00']]);
+      await adminQuery(`UPDATE products SET "unitPrice" = 15 WHERE barcode = '100'`);
+      expect((await apply(jobId)).status).toBe(202);
+    });
+  });
+
   it('depois que a gravação começou, simular ou trocar de aba ⇒ 409', async () => {
     const jobId = await simulated();
     await apply(jobId);

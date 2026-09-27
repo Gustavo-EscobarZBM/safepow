@@ -187,10 +187,12 @@ describe('Gravação da importação (SP3, 3.1.2)', () => {
     expect(event.summary.archived).toBe(1);
   });
 
-  it('ausentes cresceram além do confirmado ⇒ failed antes de gravar qualquer coisa', async () => {
+  it('ausentes cresceram além do confirmado ⇒ failed antes de gravar; a gravação pode ser simulada de novo', async () => {
     await seedCatalog();
+    const archivedBefore = await seedProduct({ companyId, barcode: '900', name: 'Arquivado antes', unitPrice: 1 });
+    await adminQuery(`UPDATE products SET "isActive" = false WHERE id = $1`, [archivedBefore]);
     const jobId = await simulated();
-    await seedProduct({ companyId, barcode: '800', name: 'Novo ausente', unitPrice: 1 });
+    await adminQuery(`UPDATE products SET "isActive" = true WHERE id = $1`, [archivedBefore]);
     await readyToApply(jobId, 'r1', { archiveMissing: true, confirmArchiveCount: 1 });
     await (await applier()).run({ jobId, companyId, runId: 'r1' });
 
@@ -199,6 +201,22 @@ describe('Gravação da importação (SP3, 3.1.2)', () => {
       lastError: 'O número de produtos ausentes mudou (era 1, agora 2). Simule de novo.',
     });
     expect((await product('100')).unitPrice).toBe('10.00');
+    // Nada foi gravado: a mensagem manda simular de novo, então o job volta a aceitar simulação.
+    expect((await job(jobId)).options.applyStartedAt).toBeUndefined();
+    const again = await http(baseUrl, 'POST', `/api/imports/${jobId}/simulate`, token, { mapping: MAPPING, updateFields: ['unitPrice'] });
+    expect(again.status).toBe(202);
+  });
+
+  it('produto criado DEPOIS da simulação não é arquivado como ausente', async () => {
+    await seedCatalog();
+    const jobId = await simulated();
+    await adminQuery(`SELECT pg_sleep(0.01)`);
+    await seedProduct({ companyId, barcode: '800', name: 'Criado depois', unitPrice: 1 });
+    await readyToApply(jobId, 'r1', { archiveMissing: true });
+    await (await applier()).run({ jobId, companyId, runId: 'r1' });
+    expect((await job(jobId)).status).toBe('completed');
+    expect((await product('800')).isActive).toBe(true);
+    expect((await product('400')).isActive).toBe(false);
   });
 
   it('falha no meio: lotes anteriores ficam; rodar de novo continua sem regravar', async () => {

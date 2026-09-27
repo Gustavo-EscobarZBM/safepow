@@ -138,6 +138,10 @@ export class ImportApplier {
         // ApplyAborted nasce na 1ª transação, que foi desfeita junto com o attemptId: confere só o applyRunId.
         await this.lockCurrent(m, jobId, error instanceof ApplyAborted ? { runId: run.runId } : run);
         await m.update(ImportJob, { id: jobId }, { status: ImportJobStatus.FAILED, lastError: message, completedAt: new Date() });
+        if (error instanceof ApplyAborted) {
+          // Nada foi gravado: sem applyStartedAt o job volta a aceitar "simular de novo", como a mensagem pede.
+          await m.query(`UPDATE import_jobs SET options = options - 'applyStartedAt' - 'applyRunId' - 'attemptId' WHERE id = $1`, [jobId]);
+        }
         await recordAuditEvent(m, {
           companyId,
           entityType: 'import_job',

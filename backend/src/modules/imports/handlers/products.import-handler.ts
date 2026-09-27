@@ -93,11 +93,13 @@ function plan(values: Record<string, unknown>, existing: ExistingProduct | undef
 
 /**
  * Produtos ativos cujo código não aparece na planilha do job. Linha com erro também conta como "veio": arquivar
- * um produto só porque a linha dele tinha um preço inválido seria destrutivo.
+ * um produto só porque a linha dele tinha um preço inválido seria destrutivo. Só entram produtos que já existiam
+ * na simulação: o gerente nunca viu, na lista de ausentes, um produto que um colega criou depois.
  */
 const MISSING_FROM = `
   FROM products p
  WHERE p."isActive"
+   AND p."createdAt" <= COALESCE((SELECT j."simulatedAt" FROM import_jobs j WHERE j.id = $1), now())
    AND NOT EXISTS (SELECT 1 FROM import_rows r WHERE r."jobId" = $1 AND r.key = p.barcode)`;
 
 /** Colunas que a importação pode escrever (whitelist: os nomes entram no SQL). */
@@ -336,17 +338,24 @@ export const productsImportHandler: ImportResourceHandler<ExistingProduct> = {
     return row.n;
   },
 
-  /** Mesma regra do priceChangeExceeds (SP2): variação estritamente acima do limite sobre um valor anterior > 0. */
-  async countSensitivePriceChanges(manager: EntityManager, jobId: string, thresholdPercent: number): Promise<number> {
-    const exceeds = (field: string) => `(
-      diff ? '${field}'
-      AND (diff->'${field}'->>'from')::numeric > 0
-      AND abs(round((diff->'${field}'->>'to')::numeric * 100) - round((diff->'${field}'->>'from')::numeric * 100)) * 100
-          > $2 * round((diff->'${field}'->>'from')::numeric * 100))`;
+  /**
+   * Mesma regra do priceChangeExceeds (SP2): variação estritamente acima do limite, em centavos, sobre o preço
+   * ATUAL do produto (> 0) — não o da simulação, que pode ter mudado até a confirmação. Só campos que a importação
+   * vai escrever (updateFields) e valores informados na planilha.
+   */
+  async countSensitivePriceChanges(manager: EntityManager, jobId: string, thresholdPercent: number, updateFields: string[]): Promise<number> {
+    const exceeds = (field: 'unitPrice' | 'costPrice') => `(
+      '${field}' = ANY($3::text[])
+      AND (r.normalized->>'${field}') IS NOT NULL
+      AND round(p."${field}" * 100) > 0
+      AND abs(round((r.normalized->>'${field}')::numeric * 100) - round(p."${field}" * 100)) * 100 > $2 * round(p."${field}" * 100))`;
     const [row]: { n: number }[] = await manager.query(
-      `SELECT count(*)::int AS n FROM import_rows
-        WHERE "jobId" = $1 AND action IN ('update', 'reactivate') AND (${exceeds('unitPrice')} OR ${exceeds('costPrice')})`,
-      [jobId, thresholdPercent],
+      `SELECT count(*)::int AS n
+         FROM import_rows r
+         JOIN products p ON p.barcode = r.key
+        WHERE r."jobId" = $1 AND r.action NOT IN ('error', 'duplicate', 'archive')
+          AND (${exceeds('unitPrice')} OR ${exceeds('costPrice')})`,
+      [jobId, thresholdPercent, updateFields],
     );
     return row.n;
   },

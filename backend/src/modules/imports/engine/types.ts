@@ -73,8 +73,8 @@ export interface ImportResourceHandler<E = unknown> {
   listMissing(manager: EntityManager, jobId: string, page: number, limit: number): Promise<MissingPage>;
   /** Registros ativos da empresa (base dos 20% da confirmação forte de "arquivar ausentes"). */
   countActive(manager: EntityManager): Promise<number>;
-  /** Linhas simuladas cuja mudança de preço passa do limite da política (recontado na confirmação). */
-  countSensitivePriceChanges(manager: EntityManager, jobId: string, thresholdPercent: number): Promise<number>;
+  /** Linhas cuja mudança de preço passa do limite da política contra o preço ATUAL (recontado na confirmação). */
+  countSensitivePriceChanges(manager: EntityManager, jobId: string, thresholdPercent: number, updateFields: string[]): Promise<number>;
   /** Grava um lote na transação de `manager` (que já tem o contexto da empresa), recalculando cada ação. */
   applyBatch(manager: EntityManager, rows: ApplyRow[], ctx: { mappedFields: string[]; updateFields: string[] }): Promise<AppliedRow[]>;
   /** Arquiva até `limit` registros ativos ausentes da planilha do job. */
