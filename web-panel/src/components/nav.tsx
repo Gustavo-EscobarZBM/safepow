@@ -42,6 +42,7 @@ const MANAGER_LINKS: NavItem[] = [
       { href: '/cadastros/produtos', label: 'Produtos' },
       { href: '/cadastros/motivos', label: 'Motivo da Perda' },
       { href: '/cadastros/locais', label: 'Local da Perda' },
+      { href: '/cadastros/importacoes', label: 'Importações' },
     ],
   },
   { href: '/losses', label: 'Perdas', icon: AlertTriangle },
