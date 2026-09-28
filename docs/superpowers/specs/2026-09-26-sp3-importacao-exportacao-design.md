@@ -435,4 +435,12 @@ merge em `main` + push. Migrations novas só entram no banco de desenvolvimento 
   `rolling_back`/`rolled_back`.
 - Testes: backend unitário 32/307, integração 40/310; web 60/362. Ponta a ponta no container: importar →
   reverter restaurou o preço e arquivou o criado.
-- **Pendente:** revisão final por subagente e merge (limite de uso atingido).
+- Revisão final (subagente opus): 2 importantes corrigidos com TDD — reversão presa em `rolling_back` (falha na 1ª
+  transação do worker; agora volta a `completed`, e o painel oferece "Tentar de novo" depois de 5 min); reversão
+  interrompida perto do dia 30 não terminava e a limpeza apagava as linhas (o prazo vale para começar; pedido aprovado
+  depois do prazo vence). Totais finais: backend unitário 32/307, integração 40/314; web 60/364.
+- **Menores abertos da 3.4:** auditoria `rollback` sem `changeRequestId` e sem evento de falha; pedido de reversão
+  pendente não é cancelado/mostrado/bloqueante; `startApproved*` sem trava de empresa; `appliedUpdatedAt` nulo (não
+  ocorre hoje); `lastError` cru na tela; prévia que não volta de página vazia; testes de `deleted` e de pedido vencido.
+
+**SP3 CONCLUÍDO em 2026-09-28** (3.1.1, 3.1.2, 3.2, 3.3 e 3.4).
