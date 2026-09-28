@@ -400,3 +400,18 @@ merge em `main` + push. Migrations novas só entram no banco de desenvolvimento 
   `rolling_back`/`rolled_back` caem em "Importação cancelada." (tela própria na 3.4); prévia que falha no F5 sem
   "tentar de novo"; `backend/README.md` e comentário do controller citam `/products/import`; teste do 404 não sobe o
   módulo real; linhas "Criar" mostram "— → valor".
+
+### 3.3 — exportação (2026-09-28)
+- Entregue: motor `modules/exports/` (`ExportResourceHandler` + `streamExport`: conta antes, > 200 mil ⇒ 400
+  `EXPORT_TOO_LARGE`; páginas de 2.000 por keyset de `id`; xlsx pelo `WorkbookWriter` do exceljs, csv com `;`, BOM e
+  CRLF; `protectFormula` compartilhada com o `csvCell`); `GET /products/export` (mesmos filtros da busca — `applyProductFilters`
+  extraída), `GET /loss-reasons/export`, `GET /loss-locations/export`, `GET /users/export`; botão **Exportar** (menu
+  Excel/CSV) em Produtos (com aba e busca atuais), Motivos, Locais e Usuários.
+- O xlsx de produtos volta pela importação com as 5 colunas sugeridas (teste de integração).
+- Testes: backend unitário 32/302, integração 38/291; web 59/347; tsc e build limpos. Verificado contra o backend
+  do container (remontado): as 6 exportações com 200, nome `produtos-2026-09-28.xlsx` etc., xlsx com código em texto.
+  Os cliques no navegador não foram feitos: o login rápido "Gerente" está com a senha antiga (a senha do
+  `gerente.demo` foi trocada fora do painel em 2026-09-27 23:32).
+- Desvio: motivos/locais sem a coluna `Situação` (ainda não têm arquivamento; entra no SP5).
+- Fora do plano, a pedido do usuário: `backend/.dockerignore` e o iniciador `Iniciar-SAFEPOW.ps1` com
+  `docker compose up -d --build` (o container rodava uma imagem de 13/09 e dava 404 nas rotas novas).
