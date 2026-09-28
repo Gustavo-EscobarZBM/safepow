@@ -4,7 +4,7 @@ import { describeCatalogPageBehavior } from '@/test/catalog-page-behavior';
 
 vi.mock('@/lib/api-client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api-client')>()),
-  api: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
+  api: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn(), getBlob: vi.fn() },
 }));
 
 describeCatalogPageBehavior({

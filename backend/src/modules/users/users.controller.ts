@@ -9,8 +9,14 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import { Response } from 'express';
+import { ExportFormatDto } from '../exports/dto/export-format.dto';
+import { streamExport } from '../exports/export-writer';
+import { usersExportHandler } from './users.export-handler';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles, RolesGuard } from '../../common/guards/roles.guard';
 import { SubscriptionGuard } from '../../common/guards/subscription.guard';
@@ -44,6 +50,13 @@ export class UsersController {
   @Post()
   invite(@Body() dto: InviteUserDto) {
     return this.usersService.invite(dto);
+  }
+
+  // Exportação em streaming (SP3, 3.3). Rota estática antes das paramétricas.
+  @Get('export')
+  @Roles(UserRole.MANAGER)
+  async export(@Query() query: ExportFormatDto, @Res() res: Response): Promise<void> {
+    await streamExport(res, usersExportHandler, undefined, query.format ?? 'xlsx');
   }
 
   @Get()

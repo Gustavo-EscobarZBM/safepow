@@ -102,6 +102,13 @@ describe('parseMoney — preço/custo em formatos brasileiros (F9f)', () => {
 });
 
 describe('normalizeName', () => {
+  it("tira o ' de proteção de fórmula da exportação (ida e volta)", () => {
+    expect(normalizeName("'-10% Sabão").value).toBe('-10% Sabão');
+    expect(normalizeName("'=HYPERLINK(\"x\")").value).toBe('=HYPERLINK("x")');
+    expect(normalizeName("'@Home").value).toBe('@Home');
+    expect(normalizeName("D'Ávila").value).toBe("D'Ávila");
+    expect(normalizeName("'Aspas'").value).toBe("'Aspas'");
+  });
   it('apara e junta espaços', () => {
     expect(normalizeName('  Arroz   Tipo 1 ')).toEqual({ value: 'Arroz Tipo 1', errors: [], warnings: [] });
   });
@@ -116,6 +123,9 @@ describe('normalizeName', () => {
 });
 
 describe('normalizeSku', () => {
+  it("tira o ' de proteção de fórmula", () => {
+    expect(normalizeSku("'+55-A").value).toBe('+55-A');
+  });
   it('apara', () => expect(normalizeSku(' A1 ')).toEqual({ value: 'A1', errors: [], warnings: [] }));
   it('vazio ⇒ null', () => expect(normalizeSku('')).toEqual({ value: null, errors: [], warnings: [] }));
   it('mais de 60 ⇒ erro', () => expect(normalizeSku('S'.repeat(61)).errors).toEqual(['SKU com mais de 60 caracteres.']));

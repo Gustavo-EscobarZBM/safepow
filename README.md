@@ -4,12 +4,10 @@ Sistema de controle e prevenção de perdas de estoque (quebra, vencimento, furt
 avarias) para pequenos e médios varejistas: registro de perdas pelo app mobile,
 gestão pelo painel web, e um backend multi-tenant por trás dos dois.
 
-## 📄 Primeiro passo: leia o guia de configuração
+## Como rodar
 
-**[Guia-de-Configuracao-SAFEPOW.docx](./Guia-de-Configuracao-SAFEPOW.docx)** — passo a
-passo completo para colocar as três partes do projeto para rodar na sua máquina
-(backend, painel web e app mobile), com contas de teste, fluxo de verificação
-ponta a ponta e solução dos problemas mais comuns.
+Cada parte tem o passo a passo no próprio README (links na tabela abaixo): backend (Docker Compose com
+Postgres, Redis e MinIO), painel web e app mobile.
 
 ## Estrutura do repositório
 

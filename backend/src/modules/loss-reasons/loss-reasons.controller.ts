@@ -1,4 +1,8 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Response } from 'express';
+import { ExportFormatDto } from '../exports/dto/export-format.dto';
+import { streamExport } from '../exports/export-writer';
+import { lossReasonsExportHandler } from './loss-reasons.export-handler';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Roles, RolesGuard } from '../../common/guards/roles.guard';
 import { SubscriptionGuard } from '../../common/guards/subscription.guard';
@@ -17,6 +21,13 @@ export class LossReasonsController {
   @Roles(UserRole.MANAGER)
   create(@Body() dto: CreateLossReasonDto) {
     return this.lossReasonsService.create(dto);
+  }
+
+  // Exportação em streaming (SP3, 3.3). Rota estática antes das paramétricas.
+  @Get('export')
+  @Roles(UserRole.MANAGER)
+  async export(@Query() query: ExportFormatDto, @Res() res: Response): Promise<void> {
+    await streamExport(res, lossReasonsExportHandler, undefined, query.format ?? 'xlsx');
   }
 
   // Alimenta tanto a tela de cadastro quanto o select de Motivo no registro de perda.

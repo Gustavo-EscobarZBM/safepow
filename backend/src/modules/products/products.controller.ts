@@ -23,6 +23,9 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { RetroFixDto, RetroFixQueryDto } from './dto/retro-fix.dto';
 import { SearchProductsDto } from './dto/search-products.dto';
+import { ExportProductsDto } from './dto/export-products.dto';
+import { streamExport } from '../exports/export-writer';
+import { productsExportHandler } from './products.export-handler';
 import { SyncProductsQueryDto } from './dto/sync-products.dto';
 import { ProductsService } from './products.service';
 
@@ -51,6 +54,13 @@ export class ProductsController {
     return page.items;
   }
 
+
+  // Exportação em streaming (SP3, 3.3) com os filtros da tela. Rota estática antes das paramétricas.
+  @Get('export')
+  @Roles(UserRole.MANAGER)
+  async export(@Query() query: ExportProductsDto, @Res() res: Response): Promise<void> {
+    await streamExport(res, productsExportHandler, query, query.format ?? 'xlsx');
+  }
 
   // Busca paginada do painel (etapa 1.3). Rota estática declarada antes das paramétricas.
   @Get('search')
