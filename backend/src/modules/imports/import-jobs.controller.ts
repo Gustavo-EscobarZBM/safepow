@@ -74,6 +74,11 @@ export class ImportJobsController {
     return this.imports.listRows(id, query);
   }
 
+  @Get(':id/rollback-preview')
+  rollbackPreview(@Param('id', ParseUUIDPipe) id: string, @Query() query: PageQueryDto) {
+    return this.imports.rollbackPreview(id, query);
+  }
+
   @Get(':id/missing')
   missing(@Param('id', ParseUUIDPipe) id: string, @Query() query: PageQueryDto) {
     return this.imports.listMissing(id, query);

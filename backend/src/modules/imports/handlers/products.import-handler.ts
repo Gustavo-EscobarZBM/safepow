@@ -1,7 +1,16 @@
 import { EntityManager } from 'typeorm';
 import { priceChangeExceeds } from '../../approvals/approval-policies';
 import { normalizeBarcode, normalizeName, normalizeSku, parseMoney } from '../engine/normalize';
-import { AppliedRow, ApplyRow, ArchivedRecord, ImportResourceHandler, MissingPage, PlanContext, RowPlan } from '../engine/types';
+import {
+  AppliedRow,
+  ApplyRow,
+  ArchivedRecord,
+  ImportResourceHandler,
+  MissingPage,
+  PlanContext,
+  RollbackPreview,
+  RowPlan,
+} from '../engine/types';
 
 /** Handler de importação de produtos (SP3, spec 2.2–2.3 e 5). Chave: código de barras. */
 
@@ -251,6 +260,35 @@ async function archiveMissingBatch(manager: EntityManager, jobId: string, limit:
   }));
 }
 
+/**
+ * Linhas da importação que a reversão pode desfazer (SP3, spec 2.6): aplicadas, ainda não revertidas, com ação que
+ * mudou o catálogo. `conflict` = o produto mudou depois da importação (ou não existe mais) e fica como está.
+ * O `appliedUpdatedAt` passou por um Date do JS (milissegundos) e o `updatedAt` tem microssegundos: tolerância < 1 ms.
+ */
+const ROLLBACK_ROWS = `
+  FROM import_rows r
+  LEFT JOIN products p ON p.id = r."productId"
+ WHERE r."jobId" = $1 AND r."appliedAt" IS NOT NULL AND r."rolledBackAt" IS NULL
+   AND r."appliedAction" IN ('create', 'update', 'reactivate', 'archive')`;
+const ROLLBACK_CONFLICT = `(p.id IS NULL OR abs(extract(epoch FROM p."updatedAt" - r."appliedUpdatedAt")) >= 0.001)`;
+
+async function rollbackPreview(manager: EntityManager, jobId: string, page: number, limit: number): Promise<RollbackPreview> {
+  const [counts]: { restore: number; conflicts: number }[] = await manager.query(
+    `SELECT count(*) FILTER (WHERE NOT ${ROLLBACK_CONFLICT})::int AS restore,
+            count(*) FILTER (WHERE ${ROLLBACK_CONFLICT})::int AS conflicts
+     ${ROLLBACK_ROWS}`,
+    [jobId],
+  );
+  const items = await manager.query(
+    `SELECT r.key, COALESCE(p.name, r.before->>'name', r.normalized->>'name') AS name, r."appliedAction",
+            CASE WHEN p.id IS NULL THEN 'deleted' ELSE 'changed' END AS reason
+     ${ROLLBACK_ROWS} AND ${ROLLBACK_CONFLICT}
+     ORDER BY r.key, r.id LIMIT $2 OFFSET $3`,
+    [jobId, limit, (page - 1) * limit],
+  );
+  return { restore: counts.restore, conflicts: counts.conflicts, items, total: counts.conflicts };
+}
+
 export const productsImportHandler: ImportResourceHandler<ExistingProduct> = {
   resource: 'products',
   keyField: 'barcode',
@@ -363,4 +401,6 @@ export const productsImportHandler: ImportResourceHandler<ExistingProduct> = {
   applyBatch,
 
   archiveMissingBatch,
+
+  rollbackPreview,
 };

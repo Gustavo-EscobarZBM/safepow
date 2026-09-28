@@ -8,7 +8,7 @@ import { StorageService } from '../uploads/storage.service';
 import { assertSafeZip, decodeCsv, detectDelimiter, detectFormat, ImportFileError } from './engine/file-sniff';
 import { headerFingerprint, normalizeHeader, suggestMapping } from './engine/mapping';
 import { listSheets, peekTable, TableSource } from './engine/sheet-reader';
-import { ImportResourceHandler, MissingPage } from './engine/types';
+import { ImportResourceHandler, MissingPage, RollbackPreview } from './engine/types';
 import { ListImportRowsDto, PageQueryDto } from './dto/list-import-rows.dto';
 import { SimulateImportDto } from './dto/simulate-import.dto';
 import { ApplyImportDto } from './dto/apply-import.dto';
@@ -24,6 +24,9 @@ const PURGE_ROWS_AFTER_DAYS = 30;
 /** Gravação sem progresso há mais que isto pode ser tentada de novo (o novo applyRunId invalida a mensagem velha). */
 const STUCK_APPLY_MS = 5 * 60 * 1000;
 const ABANDON_AFTER_DAYS = 7;
+/** Reversão só até 30 dias depois da gravação (spec I7) — o mesmo prazo em que as linhas de preparação existem. */
+export const ROLLBACK_WINDOW_DAYS = 30;
+const DAY_MS = 24 * 3600 * 1000;
 
 /** Linha de exemplo do modelo (a coluna do código vai como texto para o Excel não comer zeros à esquerda). */
 const TEMPLATE_EXAMPLE: Record<string, string | number> = {
@@ -76,6 +79,14 @@ export function toHttpError(error: unknown): unknown {
 
 export function invalidState(message = 'Esta importação não pode mais ser alterada.'): ConflictException {
   return new ConflictException({ statusCode: 409, errorCode: 'INVALID_STATE', message });
+}
+
+export function rollbackExpired(): ConflictException {
+  return new ConflictException({
+    statusCode: 409,
+    errorCode: 'ROLLBACK_EXPIRED',
+    message: `Esta importação tem mais de ${ROLLBACK_WINDOW_DAYS} dias e não pode mais ser revertida.`,
+  });
 }
 
 /** Assistente de importação 2.0 (SP3, spec 2.1–2.3 e 3): upload, prévia, simulação e consultas. */
@@ -313,6 +324,26 @@ export class ImportJobsService {
     const job = await this.findOne(id);
     if (!job.simulatedAt) throw invalidState('Simule a importação primeiro.');
     return getImportHandler(job.resource).listMissing(getTenantManager(), id, query.page ?? 1, query.limit ?? 50);
+  }
+
+  /** Prévia da reversão (SP3, spec 2.6): o que volta e o que fica por ter mudado depois da importação. */
+  async rollbackPreview(id: string, query: PageQueryDto): Promise<RollbackPreview & { expiresAt: string }> {
+    const job = await this.findOne(id);
+    this.assertRollbackable(job);
+    const preview = await getImportHandler(job.resource).rollbackPreview(getTenantManager(), id, query.page ?? 1, query.limit ?? 20);
+    return { ...preview, expiresAt: this.rollbackDeadline(job).toISOString() };
+  }
+
+  private rollbackDeadline(job: ImportJob): Date {
+    return new Date(new Date(job.appliedAt!).getTime() + ROLLBACK_WINDOW_DAYS * DAY_MS);
+  }
+
+  /** Só importação concluída, gravada há até 30 dias e com as linhas de preparação ainda guardadas. */
+  private assertRollbackable(job: ImportJob): void {
+    if (job.status !== ImportJobStatus.COMPLETED || !job.appliedAt) {
+      throw invalidState('Só dá para reverter uma importação concluída.');
+    }
+    if (job.summary?.rowsPurged || this.rollbackDeadline(job).getTime() < Date.now()) throw rollbackExpired();
   }
 
   async reportCsv(id: string): Promise<{ buffer: Buffer; fileName: string }> {

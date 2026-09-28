@@ -96,4 +96,6 @@ export interface ImportResourceHandler<E = unknown> {
   applyBatch(manager: EntityManager, rows: ApplyRow[], ctx: { mappedFields: string[]; updateFields: string[] }): Promise<AppliedRow[]>;
   /** Arquiva até `limit` registros ativos ausentes da planilha do job. */
   archiveMissingBatch(manager: EntityManager, jobId: string, limit: number): Promise<ArchivedRecord[]>;
+  /** Prévia da reversão: quantas alterações voltam e a página dos registros em conflito. */
+  rollbackPreview(manager: EntityManager, jobId: string, page: number, limit: number): Promise<RollbackPreview>;
 }
