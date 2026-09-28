@@ -111,6 +111,22 @@ export interface MissingItem {
   hasLosses: boolean;
 }
 
+export interface RollbackConflict {
+  key: string;
+  name: string | null;
+  appliedAction: RowAction;
+  reason: 'changed' | 'deleted';
+}
+
+/** GET imports/:id/rollback-preview */
+export interface RollbackPreview {
+  restore: number;
+  conflicts: number;
+  items: RollbackConflict[];
+  total: number;
+  expiresAt: string;
+}
+
 export interface Page<T> {
   items: T[];
   total: number;
@@ -177,6 +193,15 @@ export function stepForJob(job: Pick<ImportJob, 'status' | 'options'>): WizardSt
     default:
       return 'result';
   }
+}
+
+/** Dias em que uma importação concluída ainda pode ser revertida (spec I7). */
+export const ROLLBACK_WINDOW_DAYS = 30;
+
+/** Concluída, gravada há até 30 dias e com as linhas de preparação guardadas (o backend confere de novo). */
+export function canRollback(job: Pick<ImportJob, 'status' | 'appliedAt' | 'summary'>, now: Date = new Date()): boolean {
+  if (job.status !== 'completed' || !job.appliedAt || job.summary?.rowsPurged) return false;
+  return now.getTime() - new Date(job.appliedAt).getTime() <= ROLLBACK_WINDOW_DAYS * 24 * 3600 * 1000;
 }
 
 export function isPolling(status: ImportJobStatus): boolean {

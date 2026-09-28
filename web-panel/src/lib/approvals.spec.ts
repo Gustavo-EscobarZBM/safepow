@@ -60,6 +60,11 @@ describe('isPendingApproval', () => {
 });
 
 describe('describeRequest', () => {
+  it('reversão de importação: uma linha', () => {
+    const rollback: Partial<ChangeRequest> = { entityType: 'import_job', entityId: 'j1', operation: 'rollback', payload: {}, snapshot: {} };
+    expect(describeRequest(request(rollback))).toEqual(['Reverter a importação']);
+  });
+
   it('importação: uma linha, com o arquivamento quando pedido', () => {
     const base: Partial<ChangeRequest> = { policy: 'price_change', entityType: 'import_job', entityId: 'j1', operation: 'import', snapshot: {} };
     expect(describeRequest(request({ ...base, payload: { archiveMissing: false } }))).toEqual(['Importar a planilha']);

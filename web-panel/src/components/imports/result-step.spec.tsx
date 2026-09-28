@@ -92,6 +92,36 @@ describe('ResultStep', () => {
     expect(link).not.toHaveAttribute('data-next-link');
   });
 
+  it('concluída há poucos dias: "Reverter importação" abre a prévia', async () => {
+    (api.get as Mock).mockResolvedValue({ restore: 4, conflicts: 0, items: [], total: 0, expiresAt: '2026-10-20T00:00:00Z' });
+    renderStep(job({ status: 'completed', appliedAt: new Date().toISOString() }));
+    await userEvent.click(screen.getByRole('button', { name: 'Reverter importação' }));
+    expect(await screen.findByText('4 alterações serão desfeitas.')).toBeInTheDocument();
+  });
+
+  it('concluída há mais de 30 dias: sem reversão', () => {
+    renderStep(job({ status: 'completed', appliedAt: new Date(Date.now() - 31 * 24 * 3600 * 1000).toISOString() }));
+    expect(screen.queryByRole('button', { name: 'Reverter importação' })).not.toBeInTheDocument();
+  });
+
+  it('reversão que falhou: a mensagem aparece na concluída', () => {
+    renderStep(job({ status: 'completed', appliedAt: new Date().toISOString(), lastError: 'banco caiu' }));
+    expect(screen.getByText('A última tentativa de reverter falhou: banco caiu')).toBeInTheDocument();
+  });
+
+  it('revertendo e revertida', () => {
+    const { unmount } = render(
+      <ResultStep job={job({ status: 'rolling_back' })} currentUserId="u" onJobChange={vi.fn()} onAdjustColumns={vi.fn()} />,
+    );
+    expect(screen.getByText('Revertendo a importação…')).toBeInTheDocument();
+    unmount();
+    renderStep(job({ status: 'rolled_back', summary: { ...SUMMARY, rolledBackCount: 4, conflictCount: 1 } }));
+    expect(screen.getByText('Importação revertida.')).toBeInTheDocument();
+    expect(screen.getByText('Desfeitas').nextSibling).toHaveTextContent('4');
+    expect(screen.getByText('Mantidas (mudaram depois)').nextSibling).toHaveTextContent('1');
+    expect(screen.getByRole('link', { name: 'Nova importação' })).toBeInTheDocument();
+  });
+
   it('concluída: contagens finais e atalhos', () => {
     renderStep(job({ status: 'completed', options: { updateFields: [], archiveMissing: true } }));
     expect(screen.getByText('Importação concluída.')).toBeInTheDocument();
