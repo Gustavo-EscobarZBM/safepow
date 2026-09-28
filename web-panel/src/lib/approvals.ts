@@ -69,6 +69,7 @@ export function describeRequest(request: ChangeRequest): string[] {
     ];
   }
   if (request.operation === 'delete') return ['Excluir a perda'];
+  if (request.operation === 'rollback') return ['Reverter a importação'];
   if (request.operation === 'import') {
     const archive = (request.payload as { archiveMissing?: boolean }).archiveMissing;
     return [`Importar a planilha${archive ? ' e arquivar os produtos ausentes' : ''}`];

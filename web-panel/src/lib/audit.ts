@@ -25,6 +25,7 @@ export const ACTION_LABELS: Record<string, string> = {
   restore: 'Reativação',
   delete: 'Exclusão',
   import: 'Importação',
+  rollback: 'Reversão',
   login: 'Login',
   login_failed: 'Falha de login',
   approve: 'Aprovação',

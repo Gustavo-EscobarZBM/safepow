@@ -63,6 +63,23 @@ export interface ArchivedRecord {
   updatedAt: Date;
 }
 
+/** Registro que mudou depois da importação e por isso fica como está na reversão. */
+export interface RollbackConflict {
+  key: string;
+  name: string | null;
+  appliedAction: RowAction;
+  reason: 'changed' | 'deleted';
+}
+
+export interface RollbackPreview {
+  /** Alterações que serão desfeitas. */
+  restore: number;
+  conflicts: number;
+  /** Página dos conflitos. */
+  items: RollbackConflict[];
+  total: number;
+}
+
 export interface ImportResourceHandler<E = unknown> {
   resource: string;
   keyField: string;
@@ -79,4 +96,14 @@ export interface ImportResourceHandler<E = unknown> {
   applyBatch(manager: EntityManager, rows: ApplyRow[], ctx: { mappedFields: string[]; updateFields: string[] }): Promise<AppliedRow[]>;
   /** Arquiva até `limit` registros ativos ausentes da planilha do job. */
   archiveMissingBatch(manager: EntityManager, jobId: string, limit: number): Promise<ArchivedRecord[]>;
+  /** Prévia da reversão: quantas alterações voltam e a página dos registros em conflito. */
+  rollbackPreview(manager: EntityManager, jobId: string, page: number, limit: number): Promise<RollbackPreview>;
+  /** Linhas da reversão que despertam políticas do SP2 (limite de preço nulo = política de preço desligada). */
+  countRollbackSensitive(
+    manager: EntityManager,
+    jobId: string,
+    thresholdPercent: number | null,
+  ): Promise<{ priceChange: number; archiveWithHistory: number }>;
+  /** Reverte até `limit` linhas na transação de `manager`; `{0, 0}` quando não há mais nada. */
+  rollbackBatch(manager: EntityManager, jobId: string, limit: number): Promise<{ restored: number; conflicts: number }>;
 }

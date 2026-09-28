@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeDiff, isPolling, stepForJob, type ImportJob, type ImportJobStatus } from './imports';
+import { canRollback, describeDiff, isPolling, stepForJob, type ImportJob, type ImportJobStatus } from './imports';
 
 function job(status: ImportJobStatus, options: ImportJob['options'] = null): ImportJob {
   return { id: 'j1', status, options } as ImportJob;
@@ -55,5 +55,21 @@ describe('describeDiff', () => {
   it('valor antigo vazio aparece como "—"; sem diff ⇒ lista vazia', () => {
     expect(describeDiff({ sku: { from: null, to: 'A1' } })).toEqual(['SKU: — → A1']);
     expect(describeDiff(null)).toEqual([]);
+  });
+});
+
+describe('canRollback', () => {
+  const now = new Date('2026-09-28T12:00:00Z');
+  const base = { status: 'completed', appliedAt: '2026-09-20T12:00:00Z', summary: null } as unknown as ImportJob;
+
+  it('concluída há até 30 dias', () => {
+    expect(canRollback(base, now)).toBe(true);
+    expect(canRollback({ ...base, appliedAt: '2026-08-29T12:00:01Z' }, now)).toBe(true);
+  });
+  it('mais de 30 dias, linhas expurgadas, outro status ou sem gravação ⇒ não', () => {
+    expect(canRollback({ ...base, appliedAt: '2026-08-29T11:59:59Z' }, now)).toBe(false);
+    expect(canRollback({ ...base, summary: { rowsPurged: true } } as unknown as ImportJob, now)).toBe(false);
+    expect(canRollback({ ...base, status: 'rolled_back' }, now)).toBe(false);
+    expect(canRollback({ ...base, appliedAt: null }, now)).toBe(false);
   });
 });

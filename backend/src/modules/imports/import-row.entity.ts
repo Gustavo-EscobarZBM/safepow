@@ -58,4 +58,8 @@ export class ImportRow {
 
   @Column({ type: 'timestamptz', nullable: true })
   rolledBackAt: Date | null;
+
+  /** Resultado da reversão (SP3, 3.4): `restored`, ou `conflict` quando o registro mudou depois da importação. */
+  @Column({ type: 'varchar', length: 12, nullable: true })
+  rollbackResult: 'restored' | 'conflict' | null;
 }

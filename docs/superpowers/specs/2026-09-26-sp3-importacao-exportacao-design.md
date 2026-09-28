@@ -424,3 +424,23 @@ merge em `main` + push. Migrations novas só entram no banco de desenvolvimento 
 - **Menores abertos da 3.3:** nome do arquivo com a data local do navegador (backend usa São Paulo); menu Exportar
   sem foco inicial/setas e Esc sem devolver o foco; proxy do Next bufferiza a exportação (até ~16 MB) e não repassa o
   cancelamento; `Intl.DateTimeFormat` criado por célula; contagem e páginas em snapshots diferentes.
+
+### 3.4 — reversão (2026-09-28)
+- Entregue: migration 19000 (`import_rows.rollbackResult`, auditoria `rollback`; aplicada no dev com backup);
+  `GET /imports/:id/rollback-preview` (conflito = `updatedAt` diferente de `appliedUpdatedAt`, tolerância < 1 ms) e
+  `POST /imports/:id/rollback` (trava de empresa, `ROLLBACK_EXPIRED` após 30 dias, políticas do SP2 com
+  `operation 'rollback'`, pedido pendente mantém o job `completed`); worker `ImportRollbacker` (lotes de 500,
+  `import_rollback` no histórico de preço, reconfere conflito, retomável: falha volta a `completed` com `lastError`);
+  aprovação `import_job.rollback`; painel: "Reverter importação" com prévia/conflitos paginados e estados
+  `rolling_back`/`rolled_back`.
+- Testes: backend unitário 32/307, integração 40/310; web 60/362. Ponta a ponta no container: importar →
+  reverter restaurou o preço e arquivou o criado.
+- Revisão final (subagente opus): 2 importantes corrigidos com TDD — reversão presa em `rolling_back` (falha na 1ª
+  transação do worker; agora volta a `completed`, e o painel oferece "Tentar de novo" depois de 5 min); reversão
+  interrompida perto do dia 30 não terminava e a limpeza apagava as linhas (o prazo vale para começar; pedido aprovado
+  depois do prazo vence). Totais finais: backend unitário 32/307, integração 40/314; web 60/364.
+- **Menores abertos da 3.4:** auditoria `rollback` sem `changeRequestId` e sem evento de falha; pedido de reversão
+  pendente não é cancelado/mostrado/bloqueante; `startApproved*` sem trava de empresa; `appliedUpdatedAt` nulo (não
+  ocorre hoje); `lastError` cru na tela; prévia que não volta de página vazia; testes de `deleted` e de pedido vencido.
+
+**SP3 CONCLUÍDO em 2026-09-28** (3.1.1, 3.1.2, 3.2, 3.3 e 3.4).

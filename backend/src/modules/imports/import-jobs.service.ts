@@ -8,10 +8,11 @@ import { StorageService } from '../uploads/storage.service';
 import { assertSafeZip, decodeCsv, detectDelimiter, detectFormat, ImportFileError } from './engine/file-sniff';
 import { headerFingerprint, normalizeHeader, suggestMapping } from './engine/mapping';
 import { listSheets, peekTable, TableSource } from './engine/sheet-reader';
-import { ImportResourceHandler, MissingPage } from './engine/types';
+import { ImportResourceHandler, MissingPage, RollbackPreview } from './engine/types';
 import { ListImportRowsDto, PageQueryDto } from './dto/list-import-rows.dto';
 import { SimulateImportDto } from './dto/simulate-import.dto';
 import { ApplyImportDto } from './dto/apply-import.dto';
+import { RollbackImportDto } from './dto/rollback-import.dto';
 import { applyApprovalGate, loadCompanyPolicies } from '../approvals/approval-gate';
 import { ImportRow } from './import-row.entity';
 import { getImportHandler } from './handlers';
@@ -24,6 +25,9 @@ const PURGE_ROWS_AFTER_DAYS = 30;
 /** Gravação sem progresso há mais que isto pode ser tentada de novo (o novo applyRunId invalida a mensagem velha). */
 const STUCK_APPLY_MS = 5 * 60 * 1000;
 const ABANDON_AFTER_DAYS = 7;
+/** Reversão só até 30 dias depois da gravação (spec I7) — o mesmo prazo em que as linhas de preparação existem. */
+export const ROLLBACK_WINDOW_DAYS = 30;
+const DAY_MS = 24 * 3600 * 1000;
 
 /** Linha de exemplo do modelo (a coluna do código vai como texto para o Excel não comer zeros à esquerda). */
 const TEMPLATE_EXAMPLE: Record<string, string | number> = {
@@ -41,7 +45,21 @@ const STRONG_CONFIRMATION_PERCENT = 20;
 
 /** O que o pedido de aprovação guarda para detectar que o job mudou (re-simulado) antes da decisão. */
 export function approvalSnapshotOf(job: ImportJob, status: ImportJobStatus = job.status): Record<string, unknown> {
-  return { jobId: job.id, simulatedAt: job.simulatedAt ? new Date(job.simulatedAt).toISOString() : null, status };
+  const snapshot: Record<string, unknown> = {
+    jobId: job.id,
+    simulatedAt: job.simulatedAt ? new Date(job.simulatedAt).toISOString() : null,
+    status,
+  };
+  // Pedido de reversão: aprovar depois do prazo (ou das linhas expurgadas) vence o pedido em vez de dar erro.
+  if (status === ImportJobStatus.COMPLETED) snapshot.rollbackOpen = rollbackOpen(job);
+  return snapshot;
+}
+
+/** O prazo de 30 dias vale para COMEÇAR a reversão; uma reversão já começada (e interrompida) pode terminar. */
+export function rollbackOpen(job: ImportJob, now = Date.now()): boolean {
+  if (job.status !== ImportJobStatus.COMPLETED || !job.appliedAt || job.summary?.rowsPurged) return false;
+  if (job.options?.rollbackStartedAt) return true;
+  return new Date(job.appliedAt).getTime() + ROLLBACK_WINDOW_DAYS * DAY_MS >= now;
 }
 
 export interface ImportQueueData {
@@ -76,6 +94,14 @@ export function toHttpError(error: unknown): unknown {
 
 export function invalidState(message = 'Esta importação não pode mais ser alterada.'): ConflictException {
   return new ConflictException({ statusCode: 409, errorCode: 'INVALID_STATE', message });
+}
+
+export function rollbackExpired(): ConflictException {
+  return new ConflictException({
+    statusCode: 409,
+    errorCode: 'ROLLBACK_EXPIRED',
+    message: `Esta importação tem mais de ${ROLLBACK_WINDOW_DAYS} dias e não pode mais ser revertida.`,
+  });
 }
 
 /** Assistente de importação 2.0 (SP3, spec 2.1–2.3 e 3): upload, prévia, simulação e consultas. */
@@ -124,16 +150,18 @@ export class ImportJobsService {
               "lastError" = COALESCE("lastError", 'Importação abandonada depois de falhar.')
         WHERE status = 'failed' AND ${old}`,
     );
-    // Só jobs terminais perdem as linhas de preparação (nunca um em andamento).
+    // Só jobs terminais perdem as linhas de preparação (nunca um em andamento), e nunca uma importação com reversão
+    // começada e não terminada: sem as linhas ela não poderia ser concluída.
+    const unfinishedRollback = `(j.status = 'completed' AND COALESCE(j.options ? 'rollbackStartedAt', false))`;
     await manager.query(
       `DELETE FROM import_rows r USING import_jobs j
-        WHERE r."jobId" = j.id AND j.status IN ('completed', 'cancelled', 'rolled_back')
+        WHERE r."jobId" = j.id AND j.status IN ('completed', 'cancelled', 'rolled_back') AND NOT ${unfinishedRollback}
           AND COALESCE(j."appliedAt", j."createdAt") < now() - interval '${PURGE_ROWS_AFTER_DAYS} days'`,
     );
     await manager.query(
-      `UPDATE import_jobs SET summary = COALESCE(summary, '{}'::jsonb) || '{"rowsPurged": true}'::jsonb
-        WHERE status IN ('completed', 'cancelled', 'rolled_back') AND ${old}
-          AND COALESCE(summary->>'rowsPurged', 'false') <> 'true'`,
+      `UPDATE import_jobs j SET summary = COALESCE(summary, '{}'::jsonb) || '{"rowsPurged": true}'::jsonb
+        WHERE j.status IN ('completed', 'cancelled', 'rolled_back') AND NOT ${unfinishedRollback} AND ${old}
+          AND COALESCE(j.summary->>'rowsPurged', 'false') <> 'true'`,
     );
     await manager.query(
       `UPDATE import_jobs SET status = 'cancelled', "completedAt" = now(),
@@ -315,6 +343,26 @@ export class ImportJobsService {
     return getImportHandler(job.resource).listMissing(getTenantManager(), id, query.page ?? 1, query.limit ?? 50);
   }
 
+  /** Prévia da reversão (SP3, spec 2.6): o que volta e o que fica por ter mudado depois da importação. */
+  async rollbackPreview(id: string, query: PageQueryDto): Promise<RollbackPreview & { expiresAt: string }> {
+    const job = await this.findOne(id);
+    this.assertRollbackable(job);
+    const preview = await getImportHandler(job.resource).rollbackPreview(getTenantManager(), id, query.page ?? 1, query.limit ?? 20);
+    return { ...preview, expiresAt: this.rollbackDeadline(job).toISOString() };
+  }
+
+  private rollbackDeadline(job: ImportJob): Date {
+    return new Date(new Date(job.appliedAt!).getTime() + ROLLBACK_WINDOW_DAYS * DAY_MS);
+  }
+
+  /** Só importação concluída, gravada há até 30 dias e com as linhas de preparação ainda guardadas. */
+  private assertRollbackable(job: ImportJob): void {
+    if (job.status !== ImportJobStatus.COMPLETED || !job.appliedAt) {
+      throw invalidState('Só dá para reverter uma importação concluída.');
+    }
+    if (!rollbackOpen(job)) throw rollbackExpired();
+  }
+
   async reportCsv(id: string): Promise<{ buffer: Buffer; fileName: string }> {
     const job = await this.findOne(id);
     if (!job.errorReportKey) throw new NotFoundException('Relatório ainda não disponível.');
@@ -421,6 +469,81 @@ export class ImportJobsService {
     });
   }
 
+  /**
+   * Reverter (SP3, spec 2.6): mesma trava de empresa da confirmação; políticas do SP2 com `operation 'rollback'`
+   * (preço voltando além do limite, arquivar produto com perdas). Com pedido pendente o job continua `completed`.
+   * `rolling_back` parado há mais de 5 min aceita uma nova reversão (o novo rollbackRunId invalida a mensagem velha).
+   */
+  async rollback(
+    id: string,
+    dto: RollbackImportDto,
+  ): Promise<{ job: ImportJob } | { status: 'pending'; changeRequestId: string; job: ImportJob }> {
+    const { userId } = getTenantContext();
+    const job = await this.lockForTransition(id);
+    const requestedAt = Date.parse(job.options?.rollbackRequestedAt ?? '');
+    const stuck = job.status === ImportJobStatus.ROLLING_BACK && requestedAt < Date.now() - STUCK_APPLY_MS;
+    if (!stuck) this.assertRollbackable(job);
+    await this.assertNoOtherActive(job.id);
+
+    const policies = await loadCompanyPolicies();
+    const sensitive = await getImportHandler(job.resource).countRollbackSensitive(
+      getTenantManager(),
+      job.id,
+      policies.price_change.enabled ? policies.price_change.thresholdPercent : null,
+    );
+    const priceSensitive = policies.price_change.enabled && sensitive.priceChange > 0;
+    const archiveSensitive = policies.archive_with_history.enabled && sensitive.archiveWithHistory > 0;
+    if (!stuck && (priceSensitive || archiveSensitive)) {
+      const pending = await applyApprovalGate({
+        policy: priceSensitive ? 'price_change' : 'archive_with_history',
+        entityType: 'import_job',
+        entityId: job.id,
+        entityLabel: job.fileName,
+        operation: 'rollback',
+        payload: {},
+        snapshot: approvalSnapshotOf(job),
+        justification: dto.justification,
+      });
+      if (pending) {
+        job.options = { ...job.options!, rollbackRequestId: pending.changeRequestId };
+        await getTenantManager().save(job);
+        return { status: 'pending', changeRequestId: pending.changeRequestId, job };
+      }
+    }
+
+    await this.startRollback(job, userId || null);
+    return { job };
+  }
+
+  /** Começa (ou recomeça) a reversão: status rolling_back, novo rollbackRunId e mensagem na fila depois do commit. */
+  async startRollback(job: ImportJob, actorUserId: string | null): Promise<void> {
+    const runId = randomUUID();
+    job.status = ImportJobStatus.ROLLING_BACK;
+    job.lastError = null;
+    const { rollbackRequestId: _done, ...options } = job.options!;
+    job.options = {
+      ...options,
+      rollbackRunId: runId,
+      rollbackStartedAt: job.options?.rollbackStartedAt ?? new Date().toISOString(),
+      rollbackRequestedAt: new Date().toISOString(),
+      ...(actorUserId ? { rollbackActorUserId: actorUserId } : {}),
+    };
+    await getTenantManager().save(job);
+    const companyId = job.companyId;
+    afterCommit(async () => {
+      await this.queue.add('rollback', { jobId: job.id, companyId, runId }, { removeOnComplete: 1000, removeOnFail: 1000 });
+    });
+  }
+
+  /** Aprovação do pedido de reversão (SP2): a reversão começa com quem aprovou como liberador. */
+  async startApprovedRollback(jobId: string, approverUserId: string | null): Promise<void> {
+    const job = await getTenantManager().findOne(ImportJob, { where: { id: jobId }, lock: { mode: 'pessimistic_write' } });
+    if (!job) throw invalidState('A importação não existe mais.');
+    this.assertRollbackable(job);
+    await this.assertNoOtherActive(job.id);
+    await this.startRollback(job, approverUserId);
+  }
+
   async retry(id: string): Promise<ImportJob> {
     const { userId } = getTenantContext();
     const job = await this.lockForTransition(id);
@@ -509,12 +632,19 @@ export class ImportJobsService {
     await this.startApply(job, approverUserId);
   }
 
-  /** Pedido recusado, cancelado ou vencido: a importação que esperava por ele é cancelada. */
+  /**
+   * Pedido recusado, cancelado ou vencido: a importação que esperava pela gravação é cancelada; a que esperava pela
+   * reversão continua concluída (e reversível), só perde a marca do pedido.
+   */
   async onRequestClosed(jobId: string): Promise<void> {
     await getTenantManager().query(
       `UPDATE import_jobs SET status = 'cancelled', "lastError" = $2, "completedAt" = now()
         WHERE id = $1 AND status = 'pending_approval'`,
       [jobId, REQUEST_CLOSED_MESSAGE],
+    );
+    await getTenantManager().query(
+      `UPDATE import_jobs SET options = options - 'rollbackRequestId' WHERE id = $1 AND options ? 'rollbackRequestId'`,
+      [jobId],
     );
   }
 
