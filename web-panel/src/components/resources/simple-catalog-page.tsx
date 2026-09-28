@@ -5,6 +5,7 @@ import { History, Pencil, Trash2 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api-client';
 import { HistoryDrawer } from '@/components/history-drawer';
 import { Button } from '@/components/ui/button';
+import { ExportButton } from '@/components/export-button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -95,9 +96,15 @@ export function SimpleCatalogPage({ resource, auditEntityType, title, descriptio
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-2xl text-foreground">{title}</h1>
-        <p className="text-sm text-muted-foreground">{description}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl text-foreground">{title}</h1>
+          <p className="text-sm text-muted-foreground">{description}</p>
+        </div>
+        <ExportButton
+          path={`${resource}/export`}
+          fileBase={resource === 'loss-reasons' ? 'motivos-de-perda' : 'locais-de-perda'}
+        />
       </div>
 
       <Card>

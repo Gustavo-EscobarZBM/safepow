@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, type Mock } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { ComponentType } from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -44,6 +44,17 @@ export function describeCatalogPageBehavior({
         if (path.startsWith('audit?')) return { items: [], total: 0, page: 1, pageSize: 100 };
         throw new Error(`unexpected path: ${path}`);
       });
+    });
+
+    it('"Exportar" baixa a planilha do cadastro', async () => {
+      (api.getBlob as Mock).mockResolvedValue(new Blob(['x']));
+      Object.assign(window.URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() });
+      const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      render(<Page />);
+      await userEvent.click(await screen.findByRole('button', { name: 'Exportar' }));
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Excel (.xlsx)' }));
+      await waitFor(() => expect(api.getBlob).toHaveBeenCalledWith(`${resource}/export?format=xlsx`));
+      click.mockRestore();
     });
 
     it('mostra título, descrição e as linhas', async () => {

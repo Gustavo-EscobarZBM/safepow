@@ -12,6 +12,7 @@ import { RetroFixDialog } from '@/components/retro-fix-dialog';
 import { ArchiveDialog } from '@/components/resources/archive-dialog';
 import { PENDING_APPROVAL_NOTICE } from '@/lib/approvals';
 import { Pagination } from '@/components/pagination';
+import { ExportButton } from '@/components/export-button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useProductSearch } from './use-product-search';
@@ -244,13 +245,20 @@ export default function ProductsPage() {
             Cadastro manual de produtos. Para cadastro em massa, importe uma planilha.
           </p>
         </div>
-        <Link
-          href="/cadastros/importacoes/nova"
-          className="inline-flex h-9 items-center gap-2 rounded-md border px-4 text-sm font-medium transition-colors hover:bg-muted"
-        >
-          <FileSpreadsheet className="size-4" aria-hidden />
-          Importar planilha
-        </Link>
+        <div className="flex flex-wrap items-start gap-2">
+          <Link
+            href="/cadastros/importacoes/nova"
+            className="inline-flex h-9 items-center gap-2 rounded-md border px-4 text-sm font-medium transition-colors hover:bg-muted"
+          >
+            <FileSpreadsheet className="size-4" aria-hidden />
+            Importar planilha
+          </Link>
+          <ExportButton
+            path="products/export"
+            fileBase="produtos"
+            params={{ status: productSearch.status, q: productSearch.search.trim() || undefined }}
+          />
+        </div>
       </div>
 
       <Card>

@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 import { History, Pencil, Trash2 } from 'lucide-react';
+import { ExportButton } from '@/components/export-button';
 import { api, ApiError } from '@/lib/api-client';
 import { HistoryDrawer } from '@/components/history-drawer';
 import type { TenantUser, UserRole } from '@/lib/types';
@@ -131,11 +132,14 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-2xl text-foreground">Usuários da empresa</h1>
-        <p className="text-sm text-muted-foreground">
-          Convide funcionários (acesso só ao app) ou outros gerentes (acesso ao painel web).
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl text-foreground">Usuários da empresa</h1>
+          <p className="text-sm text-muted-foreground">
+            Convide funcionários (acesso só ao app) ou outros gerentes (acesso ao painel web).
+          </p>
+        </div>
+        <ExportButton path="users/export" fileBase="usuarios" />
       </div>
 
       <Card>

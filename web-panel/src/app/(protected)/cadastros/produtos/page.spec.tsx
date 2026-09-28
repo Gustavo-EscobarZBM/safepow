@@ -7,7 +7,7 @@ import type { PriceHistoryEntry } from '@/lib/types';
 
 vi.mock('@/lib/api-client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api-client')>()),
-  api: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn(), postForm: vi.fn() },
+  api: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn(), postForm: vi.fn(), getBlob: vi.fn() },
 }));
 
 const products = [
@@ -141,6 +141,29 @@ describe('ProductsPage — importação pelo assistente (SP3, 3.2)', () => {
     expect(link).toHaveAttribute('href', '/cadastros/importacoes/nova');
     expect(screen.queryByText('Importar planilha de produtos')).not.toBeInTheDocument();
     expect((api.get as Mock).mock.calls.some(([path]) => String(path).startsWith('products/import'))).toBe(false);
+  });
+});
+
+describe('ProductsPage — exportar com os filtros da tela (SP3, 3.3)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (api.get as Mock).mockImplementation(async (path: string) => {
+      if (path.startsWith('products/search')) return searchResult(products);
+      throw new Error(`unexpected path: ${path}`);
+    });
+    (api.getBlob as Mock).mockResolvedValue(new Blob(['x']));
+    Object.assign(window.URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() });
+  });
+
+  it('aba Arquivados + busca ⇒ exporta com status e q', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    render(<ProductsPage />);
+    await userEvent.click(await screen.findByRole('tab', { name: 'Arquivados' }));
+    await userEvent.type(screen.getByPlaceholderText(/Buscar/), '  arroz ');
+    await userEvent.click(screen.getByRole('button', { name: 'Exportar' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Excel (.xlsx)' }));
+    await waitFor(() => expect(api.getBlob).toHaveBeenCalledWith('products/export?format=xlsx&status=archived&q=arroz'));
+    click.mockRestore();
   });
 });
 
