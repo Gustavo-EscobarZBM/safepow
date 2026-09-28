@@ -42,6 +42,14 @@ export interface ImportOptions {
   applyRequestedAt?: string;
   /** Quem liberou a gravação (o próprio autor ou quem aprovou o pedido). */
   actorUserId?: string;
+  /** Reversão (SP3, 3.4): mesmo papel do applyRunId/applyStartedAt/applyRequestedAt na gravação. */
+  rollbackRunId?: string;
+  rollbackStartedAt?: string;
+  rollbackRequestedAt?: string;
+  /** Pedido de aprovação da reversão pendente (o job continua `completed` enquanto espera). */
+  rollbackRequestId?: string;
+  /** Quem liberou a reversão (autor do pedido ou quem aprovou) — ator do histórico de preço. */
+  rollbackActorUserId?: string;
 }
 
 export interface ImportSummary {

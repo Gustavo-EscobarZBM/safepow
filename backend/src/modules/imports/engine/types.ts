@@ -63,6 +63,23 @@ export interface ArchivedRecord {
   updatedAt: Date;
 }
 
+/** Registro que mudou depois da importação e por isso fica como está na reversão. */
+export interface RollbackConflict {
+  key: string;
+  name: string | null;
+  appliedAction: RowAction;
+  reason: 'changed' | 'deleted';
+}
+
+export interface RollbackPreview {
+  /** Alterações que serão desfeitas. */
+  restore: number;
+  conflicts: number;
+  /** Página dos conflitos. */
+  items: RollbackConflict[];
+  total: number;
+}
+
 export interface ImportResourceHandler<E = unknown> {
   resource: string;
   keyField: string;
