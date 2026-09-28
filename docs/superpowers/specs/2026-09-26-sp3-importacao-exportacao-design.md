@@ -415,3 +415,12 @@ merge em `main` + push. Migrations novas só entram no banco de desenvolvimento 
 - Desvio: motivos/locais sem a coluna `Situação` (ainda não têm arquivamento; entra no SP5).
 - Fora do plano, a pedido do usuário: `backend/.dockerignore` e o iniciador `Iniciar-SAFEPOW.ps1` com
   `docker compose up -d --build` (o container rodava uma imagem de 13/09 e dava 404 nas rotas novas).
+- Revisão final (subagente opus): 4 importantes corrigidos com TDD — erro no meio da exportação entregava arquivo
+  truncado com 200 (agora a resposta é destruída); cliente que desconectava travava a exportação e prendia a conexão
+  do pool (agora a escrita reage ao `close` e o `TenantContextMiddleware` desfaz a transação quando a conexão fecha
+  sem `end`); xlsx sem pressão de volta montava a planilha inteira na memória; o `'` de proteção voltava na
+  reimportação (agora `unprotectFormula` no nome/SKU — exportar → reimportar fica "Sem mudança"). Totais finais:
+  backend unitário 32/307, integração 38/293; web 59/347.
+- **Menores abertos da 3.3:** nome do arquivo com a data local do navegador (backend usa São Paulo); menu Exportar
+  sem foco inicial/setas e Esc sem devolver o foco; proxy do Next bufferiza a exportação (até ~16 MB) e não repassa o
+  cancelamento; `Intl.DateTimeFormat` criado por célula; contagem e páginas em snapshots diferentes.
