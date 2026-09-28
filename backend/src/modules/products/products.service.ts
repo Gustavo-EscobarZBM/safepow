@@ -1,5 +1,4 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Brackets } from 'typeorm';
 import { getTenantContext, getTenantManager } from '../../common/tenant/tenant-storage';
 import { Loss } from '../losses/loss.entity';
 import { GateOptions, PendingApproval, applyApprovalGate, loadCompanyPolicies } from '../approvals/approval-gate';
@@ -14,7 +13,7 @@ import { RetroFixImpact, computeRetroFixImpact, resolveRetroFixWindow } from './
 import { recordAuditEvent } from '../audit/audit-events';
 import { barcodeConflict, isBarcodeUniqueViolation } from './product-errors';
 import { Product } from './product.entity';
-import { DEFAULT_PAGE_SIZE, escapeLikePattern, ProductSearchResult } from './products-search';
+import { applyProductFilters, DEFAULT_PAGE_SIZE, ProductSearchResult } from './products-search';
 import { formatSyncCursor, parseSyncCursor, SYNC_TIMESTAMP_SQL } from './products-sync';
 import { PriceChangeSource, ProductPriceHistory } from './product-price-history.entity';
 
@@ -155,25 +154,8 @@ export class ProductsService {
     const manager = getTenantManager();
     const page = dto.page ?? 1;
     const pageSize = dto.pageSize ?? DEFAULT_PAGE_SIZE;
-    const status = dto.status ?? 'active';
-
     const qb = manager.createQueryBuilder(Product, 'product');
-    if (status !== 'all') {
-      qb.andWhere('product.isActive = :isActive', { isActive: status === 'active' });
-    }
-
-    const term = dto.q?.trim();
-    if (term) {
-      const escaped = escapeLikePattern(term);
-      qb.andWhere(
-        new Brackets((where) => {
-          where
-            .where(`product.name ILIKE :contains ESCAPE '\\'`, { contains: `%${escaped}%` })
-            .orWhere(`product.barcode LIKE :prefix ESCAPE '\\'`, { prefix: `${escaped}%` })
-            .orWhere(`product.sku ILIKE :prefix ESCAPE '\\'`, { prefix: `${escaped}%` });
-        }),
-      );
-    }
+    applyProductFilters(qb, dto);
 
     if (dto.sort === 'updatedAt') {
       qb.orderBy('product.updatedAt', 'DESC');

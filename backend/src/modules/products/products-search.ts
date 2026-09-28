@@ -1,3 +1,5 @@
+import { Brackets, SelectQueryBuilder } from 'typeorm';
+import type { ProductStatusFilter } from './dto/search-products.dto';
 import { Product } from './product.entity';
 
 export const DEFAULT_PAGE_SIZE = 20;
@@ -22,4 +24,30 @@ export interface ProductSearchResult {
  */
 export function escapeLikePattern(text: string): string {
   return text.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+/**
+ * Filtros da busca do painel (F10), compartilhados com a exportação (SP3, 3.3) para exportar exatamente o que a tela
+ * mostra: status (padrão `active`) e texto — nome por conteúdo, código de barras e SKU por prefixo, curingas escapados.
+ */
+export function applyProductFilters(
+  qb: SelectQueryBuilder<Product>,
+  filters: { q?: string; status?: ProductStatusFilter },
+): void {
+  const status = filters.status ?? 'active';
+  if (status !== 'all') {
+    qb.andWhere('product.isActive = :isActive', { isActive: status === 'active' });
+  }
+  const term = filters.q?.trim();
+  if (term) {
+    const escaped = escapeLikePattern(term);
+    qb.andWhere(
+      new Brackets((where) => {
+        where
+          .where(`product.name ILIKE :contains ESCAPE '\\'`, { contains: `%${escaped}%` })
+          .orWhere(`product.barcode LIKE :prefix ESCAPE '\\'`, { prefix: `${escaped}%` })
+          .orWhere(`product.sku ILIKE :prefix ESCAPE '\\'`, { prefix: `${escaped}%` });
+      }),
+    );
+  }
 }
