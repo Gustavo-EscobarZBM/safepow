@@ -18,6 +18,9 @@ interface ResultStepProps {
   onAdjustColumns: () => void;
 }
 
+/** Igual ao backend: reversão sem progresso há mais que isto pode ser pedida de novo. */
+const STUCK_ROLLBACK_MS = 5 * 60 * 1000;
+
 const LINK_BUTTON =
   'inline-flex h-9 items-center justify-center gap-2 rounded-md border px-4 text-sm font-medium transition-colors hover:bg-muted';
 
@@ -29,11 +32,14 @@ export function ResultStep({ job, currentUserId, onJobChange, onAdjustColumns }:
   const [notice, setNotice] = useState<string | null>(null);
   const counts = job.summary?.counts;
 
-  async function post(action: 'retry' | 'cancel') {
+  async function post(action: 'retry' | 'cancel' | 'rollback') {
     setBusy(true);
     setError(null);
     try {
-      const result = await api.post<{ job: ImportJob }>(`imports/${job.id}/${action}`);
+      const result =
+        action === 'rollback'
+          ? await api.post<{ job: ImportJob }>(`imports/${job.id}/rollback`, {})
+          : await api.post<{ job: ImportJob }>(`imports/${job.id}/${action}`);
       onJobChange(result.job);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Erro ao atualizar a importação.');
@@ -166,10 +172,23 @@ export function ResultStep({ job, currentUserId, onJobChange, onAdjustColumns }:
       </div>
     );
   } else if (job.status === 'rolling_back') {
+    const requestedAt = Date.parse(job.options?.rollbackRequestedAt ?? '');
+    const stuck = requestedAt < Date.now() - STUCK_ROLLBACK_MS;
     body = (
-      <div className="flex items-center gap-3 py-6 text-sm text-muted-foreground">
-        <Loader2 className="size-5 animate-spin" aria-hidden />
-        Revertendo a importação…
+      <div className="space-y-3 py-6">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <Loader2 className="size-5 animate-spin" aria-hidden />
+          Revertendo a importação…
+        </div>
+        {stuck && (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm">A reversão parece parada há mais de 5 minutos.</p>
+            <Button variant="outline" size="sm" onClick={() => post('rollback')} disabled={busy}>
+              <RotateCcw className="size-4" aria-hidden />
+              Tentar de novo
+            </Button>
+          </div>
+        )}
       </div>
     );
   } else if (job.status === 'rolled_back') {

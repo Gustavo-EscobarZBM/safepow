@@ -109,6 +109,25 @@ describe('ResultStep', () => {
     expect(screen.getByText('A última tentativa de reverter falhou: banco caiu')).toBeInTheDocument();
   });
 
+  it('reversão parada há mais de 5 minutos: "Tentar de novo" pede a reversão outra vez', async () => {
+    const rolling = job({
+      status: 'rolling_back',
+      options: { updateFields: [], rollbackRequestedAt: new Date(Date.now() - 6 * 60 * 1000).toISOString() },
+    });
+    const restarted = job({ status: 'rolling_back', options: { updateFields: [], rollbackRequestedAt: new Date().toISOString() } });
+    (api.post as Mock).mockResolvedValue({ job: restarted });
+    const { onJobChange } = renderStep(rolling);
+    expect(screen.getByText(/A reversão parece parada/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Tentar de novo' }));
+    await waitFor(() => expect(onJobChange).toHaveBeenCalledWith(restarted));
+    expect(api.post).toHaveBeenCalledWith('imports/j1/rollback', {});
+  });
+
+  it('reversão recente: sem "Tentar de novo"', () => {
+    renderStep(job({ status: 'rolling_back', options: { updateFields: [], rollbackRequestedAt: new Date().toISOString() } }));
+    expect(screen.queryByRole('button', { name: 'Tentar de novo' })).not.toBeInTheDocument();
+  });
+
   it('revertendo e revertida', () => {
     const { unmount } = render(
       <ResultStep job={job({ status: 'rolling_back' })} currentUserId="u" onJobChange={vi.fn()} onAdjustColumns={vi.fn()} />,

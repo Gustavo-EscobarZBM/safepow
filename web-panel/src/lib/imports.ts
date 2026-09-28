@@ -23,6 +23,8 @@ export interface ImportOptions {
   archiveMissing?: boolean;
   confirmArchiveCount?: number;
   applyStartedAt?: string;
+  /** Última vez que a reversão foi pedida (reversão parada há mais de 5 min pode ser pedida de novo). */
+  rollbackRequestedAt?: string;
 }
 
 export interface ImportSummary {

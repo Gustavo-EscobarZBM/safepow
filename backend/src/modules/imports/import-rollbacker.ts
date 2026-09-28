@@ -20,6 +20,8 @@ export interface RollbackerLimits {
   batchSize?: number;
   /** Só para testes: chamado antes de cada lote, fora da transação. */
   beforeBatch?: () => Promise<void>;
+  /** Só para testes: chamado dentro da 1ª transação, depois de gravar o attemptId. */
+  beforeStart?: () => Promise<void>;
 }
 
 /**
@@ -48,6 +50,8 @@ export class ImportRollbacker {
     const run: RunRef = { runId: data.runId, attemptId: randomUUID() };
     const handler = getImportHandler(job.resource);
 
+    // A 1ª transação grava o attemptId; se ela falhar, o attemptId é desfeito junto e o catch confere só o runId.
+    let attemptSaved = false;
     try {
       await this.tx(companyId, actor, async (m) => {
         await this.lockCurrent(m, jobId, { runId: run.runId });
@@ -55,7 +59,9 @@ export class ImportRollbacker {
           jobId,
           run.attemptId,
         ]);
+        await this.limits.beforeStart?.();
       });
+      attemptSaved = true;
 
       for (;;) {
         await this.limits.beforeBatch?.();
@@ -76,7 +82,7 @@ export class ImportRollbacker {
       this.logger.error(`Falha na reversão da importação ${jobId}`, error as Error);
       const message = error instanceof Error ? error.message : 'Erro desconhecido ao reverter a importação.';
       await this.tx(companyId, actor, async (m) => {
-        await this.lockCurrent(m, jobId, run);
+        await this.lockCurrent(m, jobId, attemptSaved ? run : { runId: run.runId });
         // Volta a "concluída" (não "falhou": falhou com applyStartedAt quer dizer "gravar de novo"); reverter continua.
         await m.query(
           `UPDATE import_jobs SET status = $2, "lastError" = $3,

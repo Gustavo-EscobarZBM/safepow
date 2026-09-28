@@ -206,6 +206,54 @@ describe('Reversão da importação (SP3, 3.4)', () => {
       expect(done.summary).toMatchObject({ rolledBackCount: 4, conflictCount: 0 });
     });
 
+    it('falha logo no início do worker: volta a concluída com a mensagem (não fica "revertendo" para sempre)', async () => {
+      const jobId = await imported();
+      await rollback(jobId);
+      await runRollback({
+        beforeStart: async () => {
+          throw new Error('conexão caiu');
+        },
+      });
+      const failed = await job(jobId);
+      expect(failed.status).toBe('completed');
+      expect(failed.lastError).toBe('conexão caiu');
+    });
+
+    it('reversão começada no prazo e interrompida pode ser terminada depois dos 30 dias', async () => {
+      const jobId = await imported();
+      await rollback(jobId);
+      let batches = 0;
+      await runRollback({
+        batchSize: 1,
+        beforeBatch: async () => {
+          batches += 1;
+          if (batches === 2) throw new Error('banco caiu');
+        },
+      });
+      await adminQuery(`UPDATE import_jobs SET "appliedAt" = now() - interval '31 days' WHERE id = $1`, [jobId]);
+      expect((await rollback(jobId)).status).toBe(202);
+      await runRollback();
+      expect((await job(jobId)).status).toBe('rolled_back');
+    });
+
+    it('a limpeza de 30 dias não apaga as linhas de uma reversão começada e não terminada', async () => {
+      const jobId = await imported();
+      await rollback(jobId);
+      let batches = 0;
+      await runRollback({
+        batchSize: 1,
+        beforeBatch: async () => {
+          batches += 1;
+          if (batches === 2) throw new Error('banco caiu');
+        },
+      });
+      await adminQuery(`UPDATE import_jobs SET "appliedAt" = now() - interval '31 days' WHERE id = $1`, [jobId]);
+      await http(baseUrl, 'GET', '/api/imports', token);
+      const [{ n }] = await adminQuery(`SELECT count(*)::int AS n FROM import_rows WHERE "jobId" = $1`, [jobId]);
+      expect(n).toBeGreaterThan(0);
+      expect((await job(jobId)).summary.rowsPurged).toBeUndefined();
+    });
+
     it('já revertendo ⇒ 409 INVALID_STATE; outra importação em andamento ⇒ 409 IMPORT_IN_PROGRESS', async () => {
       const jobId = await imported();
       await rollback(jobId);

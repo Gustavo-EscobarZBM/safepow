@@ -156,6 +156,17 @@ describe('Pedido de aprovação de importação (SP3, 3.1.2)', () => {
       expect((await adminQuery(`SELECT "unitPrice" FROM products WHERE barcode = '100'`))[0].unitPrice).toBe('10.00');
     });
 
+    it('aprovar depois do prazo de 30 dias: o pedido vence e a importação continua concluída', async () => {
+      const jobId = await completedImport();
+      const requestId = await pendingRollback(jobId);
+      await adminQuery(`UPDATE import_jobs SET "appliedAt" = now() - interval '31 days' WHERE id = $1`, [jobId]);
+      const approved = await http(baseUrl, 'POST', `/api/change-requests/${requestId}/approve`, approverToken, {});
+      expect(approved.status).toBe(200);
+      expect(await requestStatus(requestId)).toBe('expired');
+      expect(await jobStatus(jobId)).toBe('completed');
+      expect(queue.calls).toHaveLength(0);
+    });
+
     it('recusar: a importação continua concluída e pode ser revertida de novo', async () => {
       const jobId = await completedImport();
       const requestId = await pendingRollback(jobId);

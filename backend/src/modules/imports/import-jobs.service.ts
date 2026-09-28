@@ -45,7 +45,21 @@ const STRONG_CONFIRMATION_PERCENT = 20;
 
 /** O que o pedido de aprovação guarda para detectar que o job mudou (re-simulado) antes da decisão. */
 export function approvalSnapshotOf(job: ImportJob, status: ImportJobStatus = job.status): Record<string, unknown> {
-  return { jobId: job.id, simulatedAt: job.simulatedAt ? new Date(job.simulatedAt).toISOString() : null, status };
+  const snapshot: Record<string, unknown> = {
+    jobId: job.id,
+    simulatedAt: job.simulatedAt ? new Date(job.simulatedAt).toISOString() : null,
+    status,
+  };
+  // Pedido de reversão: aprovar depois do prazo (ou das linhas expurgadas) vence o pedido em vez de dar erro.
+  if (status === ImportJobStatus.COMPLETED) snapshot.rollbackOpen = rollbackOpen(job);
+  return snapshot;
+}
+
+/** O prazo de 30 dias vale para COMEÇAR a reversão; uma reversão já começada (e interrompida) pode terminar. */
+export function rollbackOpen(job: ImportJob, now = Date.now()): boolean {
+  if (job.status !== ImportJobStatus.COMPLETED || !job.appliedAt || job.summary?.rowsPurged) return false;
+  if (job.options?.rollbackStartedAt) return true;
+  return new Date(job.appliedAt).getTime() + ROLLBACK_WINDOW_DAYS * DAY_MS >= now;
 }
 
 export interface ImportQueueData {
@@ -136,16 +150,18 @@ export class ImportJobsService {
               "lastError" = COALESCE("lastError", 'Importação abandonada depois de falhar.')
         WHERE status = 'failed' AND ${old}`,
     );
-    // Só jobs terminais perdem as linhas de preparação (nunca um em andamento).
+    // Só jobs terminais perdem as linhas de preparação (nunca um em andamento), e nunca uma importação com reversão
+    // começada e não terminada: sem as linhas ela não poderia ser concluída.
+    const unfinishedRollback = `(j.status = 'completed' AND COALESCE(j.options ? 'rollbackStartedAt', false))`;
     await manager.query(
       `DELETE FROM import_rows r USING import_jobs j
-        WHERE r."jobId" = j.id AND j.status IN ('completed', 'cancelled', 'rolled_back')
+        WHERE r."jobId" = j.id AND j.status IN ('completed', 'cancelled', 'rolled_back') AND NOT ${unfinishedRollback}
           AND COALESCE(j."appliedAt", j."createdAt") < now() - interval '${PURGE_ROWS_AFTER_DAYS} days'`,
     );
     await manager.query(
-      `UPDATE import_jobs SET summary = COALESCE(summary, '{}'::jsonb) || '{"rowsPurged": true}'::jsonb
-        WHERE status IN ('completed', 'cancelled', 'rolled_back') AND ${old}
-          AND COALESCE(summary->>'rowsPurged', 'false') <> 'true'`,
+      `UPDATE import_jobs j SET summary = COALESCE(summary, '{}'::jsonb) || '{"rowsPurged": true}'::jsonb
+        WHERE j.status IN ('completed', 'cancelled', 'rolled_back') AND NOT ${unfinishedRollback} AND ${old}
+          AND COALESCE(j.summary->>'rowsPurged', 'false') <> 'true'`,
     );
     await manager.query(
       `UPDATE import_jobs SET status = 'cancelled', "completedAt" = now(),
@@ -344,7 +360,7 @@ export class ImportJobsService {
     if (job.status !== ImportJobStatus.COMPLETED || !job.appliedAt) {
       throw invalidState('Só dá para reverter uma importação concluída.');
     }
-    if (job.summary?.rowsPurged || this.rollbackDeadline(job).getTime() < Date.now()) throw rollbackExpired();
+    if (!rollbackOpen(job)) throw rollbackExpired();
   }
 
   async reportCsv(id: string): Promise<{ buffer: Buffer; fileName: string }> {
