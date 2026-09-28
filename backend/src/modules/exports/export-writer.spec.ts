@@ -13,6 +13,9 @@ interface Row {
 
 /** Resposta HTTP falsa: guarda cabeçalhos e bytes. */
 class FakeResponse extends Writable {
+  constructor(opts: { highWaterMark?: number } = {}) {
+    super(opts);
+  }
   headers: Record<string, string> = {};
   chunks: Buffer[] = [];
   headersSent = false;
@@ -29,6 +32,16 @@ class FakeResponse extends Writable {
   }
   finished(): Promise<void> {
     return new Promise((resolve) => (this.writableFinished ? resolve() : this.on('finish', () => resolve())));
+  }
+}
+
+/** Cliente que não lê nada (buffer mínimo): toda escrita fica pendente. */
+class StalledResponse extends FakeResponse {
+  constructor() {
+    super({ highWaterMark: 1 });
+  }
+  _write(_chunk: Buffer, _enc: string, _done: () => void) {
+    this.headersSent = true;
   }
 }
 
@@ -81,10 +94,10 @@ describe('exportFileName', () => {
   });
 });
 
-describe('streamExport', () => {
-  const rows = (n: number): Row[] =>
-    Array.from({ length: n }, (_, i) => ({ id: String(i).padStart(6, '0'), name: `P${i}`, price: '1.00' }));
+const rows = (n: number): Row[] =>
+  Array.from({ length: n }, (_, i) => ({ id: String(i).padStart(6, '0'), name: `P${i}`, price: '1.00' }));
 
+describe('streamExport', () => {
   it('csv: BOM, ; e CRLF; páginas por keyset', async () => {
     const res = new FakeResponse();
     const h = handler(rows(2500));
@@ -119,5 +132,41 @@ describe('streamExport', () => {
     expect(sheet.getCell('B2').value).toBe(12.5);
     expect(sheet.getCell('B2').numFmt).toBe('0.00');
     expect(res.headers['content-type']).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  });
+
+  it('erro no meio (depois dos cabeçalhos): a resposta é destruída, não encerrada como sucesso', async () => {
+    const res = new FakeResponse();
+    const h = handler(rows(5000));
+    const original = h.page;
+    let calls = 0;
+    h.page = async (...args) => {
+      calls += 1;
+      if (calls === 2) throw new Error('banco caiu');
+      return original(...args);
+    };
+    await expect(streamExport(res as never, h, {}, 'csv', { manager })).rejects.toThrow('banco caiu');
+    expect(res.destroyed).toBe(true);
+    expect(res.writableEnded).toBe(false);
+  });
+
+  it('cliente desconecta no meio: termina (sem travar) e para de ler páginas', async () => {
+    const res = new StalledResponse();
+    const h = handler(rows(10_000));
+    const done = streamExport(res as never, h, {}, 'csv', { manager }).catch((e) => e);
+    await new Promise((r) => setTimeout(r, 20));
+    res.destroy();
+    const result = await Promise.race([done, new Promise((r) => setTimeout(() => r('TRAVOU'), 1000))]);
+    expect(result).not.toBe('TRAVOU');
+    expect(h.afterIds.length).toBeLessThan(5);
+  });
+
+  it('xlsx com cliente lento: não gera as páginas seguintes enquanto a resposta não drena', async () => {
+    const res = new StalledResponse();
+    const h = handler(rows(40_000));
+    void streamExport(res as never, h, {}, 'xlsx', { manager }).catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 1500));
+    // Sem pressão de volta o exceljs gera as 20 páginas na memória; com ela, para poucas páginas à frente.
+    expect(h.afterIds.length).toBeLessThanOrEqual(4);
+    res.destroy();
   });
 });

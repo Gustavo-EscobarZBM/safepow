@@ -59,10 +59,66 @@ function xlsxValue(type: ExportCellType, value: string | number | Date | null): 
   return protectFormula(String(value));
 }
 
-function write(res: Response, chunk: string): Promise<void> {
+/** O cliente foi embora (ou a resposta foi destruída): parar sem gravar mais nada. */
+class ClientGone extends Error {
+  constructor() {
+    super('O cliente fechou a conexão durante a exportação.');
+  }
+}
+
+function alive(res: Response): void {
+  if (res.destroyed || res.writableEnded) throw new ClientGone();
+}
+
+/**
+ * Espera a resposta drenar. `drain` nunca chega se o cliente desconectar — por isso `close` também encerra a espera
+ * (sem isso a exportação travaria para sempre segurando a transação e a conexão do pool).
+ */
+function waitDrain(res: Response): Promise<void> {
+  alive(res);
   return new Promise((resolve, reject) => {
-    if (res.write(chunk)) resolve();
-    else res.once('drain', resolve).once('error', reject);
+    const cleanup = () => {
+      res.off('drain', onDrain);
+      res.off('close', onClose);
+      res.off('error', onClose);
+    };
+    const onDrain = () => {
+      cleanup();
+      resolve();
+    };
+    const onClose = () => {
+      cleanup();
+      reject(new ClientGone());
+    };
+    res.on('drain', onDrain);
+    res.on('close', onClose);
+    res.on('error', onClose);
+  });
+}
+
+async function write(res: Response, chunk: string): Promise<void> {
+  alive(res);
+  if (!res.write(chunk)) await waitDrain(res);
+}
+
+/** Resolve quando `promise` terminar; rejeita se a resposta fechar antes (o `commit` do exceljs espera o `finish`). */
+function unlessClosed<T>(res: Response, promise: Promise<T>): Promise<T> {
+  alive(res);
+  return new Promise((resolve, reject) => {
+    const onClose = () => {
+      if (!res.writableFinished) reject(new ClientGone());
+    };
+    res.once('close', onClose);
+    promise.then(
+      (value) => {
+        res.off('close', onClose);
+        resolve(value);
+      },
+      (error) => {
+        res.off('close', onClose);
+        reject(error);
+      },
+    );
   });
 }
 
@@ -70,6 +126,10 @@ function write(res: Response, chunk: string): Promise<void> {
  * Exportação em streaming (SP3, spec 4 / I6): conta antes (acima do limite ⇒ 400 sem tocar na resposta), depois lê
  * páginas de 2.000 por keyset e escreve direto na resposta — xlsx pelo WorkbookWriter do exceljs, CSV com `;`, BOM
  * e CRLF. A resposta termina com `res.end` (o middleware do tenant fecha a transação ali).
+ *
+ * Falha depois dos cabeçalhos (banco, cliente que desconectou): a resposta é DESTRUÍDA — nunca encerrada com 200 — para
+ * o cliente não receber um arquivo truncado como se estivesse completo. O xlsx respeita a pressão de volta da resposta
+ * entre as páginas (sem isso o exceljs geraria a planilha inteira na memória com um cliente lento).
  */
 export async function streamExport<R extends { id: string }, F>(
   res: Response,
@@ -102,18 +162,38 @@ export async function streamExport<R extends { id: string }, F>(
     }
   };
 
-  if (format === 'csv') {
-    await write(res, '﻿' + csvLine(handler.columns.map((c) => c.header)) + '\r\n');
-    for await (const rows of pages()) {
-      const lines = rows.map(
-        (row) => handler.columns.map((c) => csvCellRaw(formatCsvValue(c.type, c.value(row)))).join(';') + '\r\n',
-      );
-      await write(res, lines.join(''));
-    }
-    res.end();
-    return;
+  try {
+    if (format === 'csv') await writeCsv(res, handler, pages());
+    else await writeXlsx(res, handler, pages());
+  } catch (error) {
+    // Sem o erro no destroy: ele viraria um 'error' sem ouvinte; o erro segue para o Nest registrar.
+    if (!res.destroyed) res.destroy();
+    if (error instanceof ClientGone) return;
+    throw error;
   }
+}
 
+async function writeCsv<R extends { id: string }, F>(
+  res: Response,
+  handler: ExportResourceHandler<R, F>,
+  pages: AsyncGenerator<R[]>,
+): Promise<void> {
+  await write(res, '\uFEFF' + csvLine(handler.columns.map((c) => c.header)) + '\r\n');
+  for await (const rows of pages) {
+    alive(res);
+    const lines = rows.map(
+      (row) => handler.columns.map((c) => csvCellRaw(formatCsvValue(c.type, c.value(row)))).join(';') + '\r\n',
+    );
+    await write(res, lines.join(''));
+  }
+  res.end();
+}
+
+async function writeXlsx<R extends { id: string }, F>(
+  res: Response,
+  handler: ExportResourceHandler<R, F>,
+  pages: AsyncGenerator<R[]>,
+): Promise<void> {
   const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res, useStyles: true });
   const sheet = workbook.addWorksheet(handler.sheetName);
   sheet.columns = handler.columns.map((c) => ({
@@ -123,11 +203,15 @@ export async function streamExport<R extends { id: string }, F>(
   }));
   sheet.getRow(1).font = { bold: true };
   sheet.getRow(1).commit();
-  for await (const rows of pages()) {
+  for await (const rows of pages) {
+    alive(res);
     for (const row of rows) sheet.addRow(handler.columns.map((c) => xlsxValue(c.type, c.value(row)))).commit();
+    // Deixa o zip entregar o que já gerou e, se a resposta estiver cheia, espera o cliente ler antes da próxima página.
+    await new Promise((resolve) => setImmediate(resolve));
+    if (res.writableNeedDrain) await waitDrain(res);
   }
   sheet.commit();
-  await workbook.commit();
+  await unlessClosed(res, workbook.commit());
 }
 
 /** Aspas do CSV para um valor já formatado (a proteção de fórmula já foi aplicada). */

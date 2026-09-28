@@ -116,15 +116,23 @@ export function parseMoney(text: string | null): NormalizeResult<number | null> 
   return ok(value, warnings);
 }
 
+/**
+ * Desfaz a proteção de fórmula da exportação (`common/csv.ts#protectFormula`): `'-10% Sabão` volta a `-10% Sabão`,
+ * para exportar → reimportar não mudar o nome. Só quando o apóstrofo vem antes de = + - @ (tab/CR já foram aparados).
+ */
+export function unprotectFormula(text: string): string {
+  return /^'[=+\-@\t\r]/.test(text) ? text.slice(1) : text;
+}
+
 export function normalizeName(text: string | null): NormalizeResult<string | null> {
-  const name = (text ?? '').replace(/\s+/g, ' ').trim();
+  const name = unprotectFormula((text ?? '').replace(/\s+/g, ' ').trim());
   if (!name) return fail(null, 'Nome do produto vazio.');
   if (name.length > MAX_NAME_LENGTH) return ok(name.slice(0, MAX_NAME_LENGTH), ['NAME_TRUNCATED']);
   return ok(name);
 }
 
 export function normalizeSku(text: string | null): NormalizeResult<string | null> {
-  const sku = (text ?? '').trim();
+  const sku = unprotectFormula((text ?? '').trim());
   if (!sku) return ok(null);
   if (sku.length > MAX_SKU_LENGTH) return fail(null, `SKU com mais de ${MAX_SKU_LENGTH} caracteres.`);
   return ok(sku);

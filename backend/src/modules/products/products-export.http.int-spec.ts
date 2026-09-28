@@ -3,8 +3,11 @@ jest.mock('@nestjs/bullmq', () => require('../../test-utils/bullmq-mock'));
 import { INestApplication } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import { seedUser, tokenFor } from '../../test-utils/approvals-test-app';
-import { startImportsApp, uploadFile } from '../../test-utils/imports-test-app';
-import { adminQuery, closeTestConnections, seedCompany, seedProduct, truncateAll } from '../../test-utils/test-db';
+import { FakeQueue, FakeStorage, startImportsApp, uploadFile } from '../../test-utils/imports-test-app';
+import { adminQuery, appDataSource, closeTestConnections, seedCompany, seedProduct, truncateAll } from '../../test-utils/test-db';
+import { ImportSimulator } from '../imports/import-simulator';
+import { StorageService } from '../uploads/storage.service';
+import { http } from '../../test-utils/approvals-test-app';
 import { UserRole } from '../users/user.entity';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
@@ -14,9 +17,11 @@ describe('GET /products/export (SP3, 3.3)', () => {
   let baseUrl: string;
   let companyId: string;
   let token: string;
+  let storage: FakeStorage;
+  let queue: FakeQueue;
 
   beforeAll(async () => {
-    ({ app, baseUrl } = await startImportsApp({ controllers: [ProductsController], providers: [ProductsService] }));
+    ({ app, baseUrl, storage, queue } = await startImportsApp({ controllers: [ProductsController], providers: [ProductsService] }));
   });
   afterAll(async () => {
     await app.close();
@@ -118,5 +123,23 @@ describe('GET /products/export (SP3, 3.3)', () => {
       costPrice: 'Custo',
     });
     expect(uploaded.sample[0][0]).toBe('0789123');
+  });
+
+  it('ida e volta: nomes que começam com - + = @ exportados e reimportados ficam "Sem mudança"', async () => {
+    await seedProduct({ companyId, barcode: '111', name: '-10% Sabão', unitPrice: 5 });
+    await seedProduct({ companyId, barcode: '222', name: '+Vida Suco', unitPrice: 6 });
+    await seedProduct({ companyId, barcode: '333', name: '@Home Toalha', unitPrice: 7 });
+    const { body } = await download('');
+    const { body: uploaded } = await uploadFile(baseUrl, token, body, 'produtos.xlsx');
+    await http(baseUrl, 'POST', `/api/imports/${uploaded.job.id}/simulate`, token, {
+      mapping: uploaded.suggestedMapping,
+      updateFields: ['name', 'sku', 'unitPrice', 'costPrice'],
+    });
+    await new ImportSimulator(await appDataSource(), storage as unknown as StorageService).run(
+      queue.calls[queue.calls.length - 1].data,
+    );
+    const [job] = await adminQuery(`SELECT status, summary FROM import_jobs WHERE id = $1`, [uploaded.job.id]);
+    expect(job.status).toBe('simulated');
+    expect(job.summary.counts).toMatchObject({ unchanged: 3, update: 0, create: 0, error: 0 });
   });
 });

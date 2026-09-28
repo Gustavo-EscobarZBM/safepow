@@ -109,6 +109,16 @@ export class TenantContextMiddleware implements NestMiddleware {
     const originalEnd = res.end.bind(res) as unknown as (...args: unknown[]) => Response;
     let endRequested = false;
 
+    // Conexão fechada sem `end` (streaming com cliente que desconectou): ninguém mais vai terminar a resposta, então
+    // a transação é desfeita e a conexão volta ao pool — senão ficaria "idle in transaction" para sempre.
+    res.once('close', () => {
+      if (endRequested) return;
+      endRequested = true;
+      this.finishTransaction(queryRunner, false).catch((error) =>
+        this.logger.error(`Falha ao desfazer a transação de uma conexão fechada: ${String(error)}`),
+      );
+    });
+
     res.end = ((...args: unknown[]) => {
       // Só o primeiro `end` vale — como no Node nativo, onde os seguintes são ignorados.
       if (endRequested) return res;

@@ -134,6 +134,13 @@ async function startServer(dataSource: DataSource): Promise<TestServer> {
       .query(`UPDATE products SET name = name || ' (editado)', "unitPrice" = "unitPrice" + 1 RETURNING id`)
       .then((rows: { id: string }[]) => res.status(200).json({ id: rows[0].id }));
   });
+  // Streaming que nunca termina (exportação com cliente que some): grava, manda um pedaço e não chama `end`.
+  app.post('/stream-hang', (_req, res) => {
+    void insertProduct('STREAM-HANG').then(() => {
+      res.status(200);
+      res.write('primeiro pedaço');
+    });
+  });
   // Corpo de tipo inválido: nosso `end` adia a chamada, e o `end` real só lança depois do commit.
   app.post('/invalid-end', (_req, res) => {
     res.status(200);
@@ -387,5 +394,67 @@ describe('TenantContextMiddleware — afterCommit (SP3)', () => {
     const { status } = await post(server.baseUrl, '/after-commit/409', token);
     expect(status).toBe(409);
     expect(afterCommitCalls).toEqual([]);
+  });
+});
+
+describe('TenantContextMiddleware — cliente que desconecta sem a resposta terminar (SP3, 3.3)', () => {
+  const released: boolean[] = [];
+  let server: TestServer;
+  let token: string;
+
+  beforeAll(async () => {
+    const dataSource = await appDataSource();
+    const tracking = new Proxy(dataSource, {
+      get(target, property) {
+        if (property === 'createQueryRunner') {
+          return (...args: Parameters<DataSource['createQueryRunner']>) => {
+            const queryRunner = target.createQueryRunner(...args);
+            const index = released.push(false) - 1;
+            const realRelease = queryRunner.release.bind(queryRunner);
+            queryRunner.release = async () => {
+              released[index] = true;
+              return realRelease();
+            };
+            return queryRunner;
+          };
+        }
+        const value = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    server = await startServer(tracking);
+  });
+  afterAll(async () => {
+    await server.close();
+    await closeTestConnections();
+  });
+  beforeEach(async () => {
+    await truncateAll();
+    released.length = 0;
+    token = await new JwtService({ secret: JWT_SECRET }).signAsync({
+      sub: '00000000-0000-4000-8000-000000000001',
+      role: UserRole.MANAGER,
+      companyId: await seedCompany('Empresa Stream'),
+    });
+  });
+
+  it('a transação é desfeita e a conexão volta ao pool quando o cliente fecha no meio', async () => {
+    await new Promise<void>((resolve, reject) => {
+      const request = http.request(`${server.baseUrl}/stream-hang`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      request.on('response', (response) => response.once('data', () => {
+        request.destroy();
+        resolve();
+      }));
+      request.on('error', (error) => ((error as NodeJS.ErrnoException).code === 'ECONNRESET' ? resolve() : reject(error)));
+      request.end();
+    });
+
+    const deadline = Date.now() + 3000;
+    while (!released.every(Boolean) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+    expect(released).toEqual([true]);
+    expect(await adminQuery(`SELECT 1 FROM products WHERE barcode = 'STREAM-HANG'`)).toEqual([]);
   });
 });
