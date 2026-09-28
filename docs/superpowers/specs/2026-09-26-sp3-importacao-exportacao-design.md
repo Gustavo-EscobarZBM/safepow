@@ -424,3 +424,15 @@ merge em `main` + push. Migrations novas só entram no banco de desenvolvimento 
 - **Menores abertos da 3.3:** nome do arquivo com a data local do navegador (backend usa São Paulo); menu Exportar
   sem foco inicial/setas e Esc sem devolver o foco; proxy do Next bufferiza a exportação (até ~16 MB) e não repassa o
   cancelamento; `Intl.DateTimeFormat` criado por célula; contagem e páginas em snapshots diferentes.
+
+### 3.4 — reversão (2026-09-28)
+- Entregue: migration 19000 (`import_rows.rollbackResult`, auditoria `rollback`; aplicada no dev com backup);
+  `GET /imports/:id/rollback-preview` (conflito = `updatedAt` diferente de `appliedUpdatedAt`, tolerância < 1 ms) e
+  `POST /imports/:id/rollback` (trava de empresa, `ROLLBACK_EXPIRED` após 30 dias, políticas do SP2 com
+  `operation 'rollback'`, pedido pendente mantém o job `completed`); worker `ImportRollbacker` (lotes de 500,
+  `import_rollback` no histórico de preço, reconfere conflito, retomável: falha volta a `completed` com `lastError`);
+  aprovação `import_job.rollback`; painel: "Reverter importação" com prévia/conflitos paginados e estados
+  `rolling_back`/`rolled_back`.
+- Testes: backend unitário 32/307, integração 40/310; web 60/362. Ponta a ponta no container: importar →
+  reverter restaurou o preço e arquivou o criado.
+- **Pendente:** revisão final por subagente e merge (limite de uso atingido).
