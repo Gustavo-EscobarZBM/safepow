@@ -22,6 +22,7 @@ import { PreviewImportDto } from './dto/import-mapping.dto';
 import { ListImportRowsDto, ListImportsDto, PageQueryDto } from './dto/list-import-rows.dto';
 import { SimulateImportDto } from './dto/simulate-import.dto';
 import { ApplyImportDto } from './dto/apply-import.dto';
+import { RollbackImportDto } from './dto/rollback-import.dto';
 import { ImportJobsService } from './import-jobs.service';
 
 const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;
@@ -95,6 +96,12 @@ export class ImportJobsController {
   @HttpCode(202)
   apply(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ApplyImportDto) {
     return this.imports.apply(id, dto);
+  }
+
+  @Post(':id/rollback')
+  @HttpCode(202)
+  rollback(@Param('id', ParseUUIDPipe) id: string, @Body() dto: RollbackImportDto) {
+    return this.imports.rollback(id, dto);
   }
 
   @Post(':id/retry')

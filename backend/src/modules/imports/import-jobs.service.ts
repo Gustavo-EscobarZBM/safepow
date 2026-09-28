@@ -12,6 +12,7 @@ import { ImportResourceHandler, MissingPage, RollbackPreview } from './engine/ty
 import { ListImportRowsDto, PageQueryDto } from './dto/list-import-rows.dto';
 import { SimulateImportDto } from './dto/simulate-import.dto';
 import { ApplyImportDto } from './dto/apply-import.dto';
+import { RollbackImportDto } from './dto/rollback-import.dto';
 import { applyApprovalGate, loadCompanyPolicies } from '../approvals/approval-gate';
 import { ImportRow } from './import-row.entity';
 import { getImportHandler } from './handlers';
@@ -452,6 +453,81 @@ export class ImportJobsService {
     });
   }
 
+  /**
+   * Reverter (SP3, spec 2.6): mesma trava de empresa da confirmação; políticas do SP2 com `operation 'rollback'`
+   * (preço voltando além do limite, arquivar produto com perdas). Com pedido pendente o job continua `completed`.
+   * `rolling_back` parado há mais de 5 min aceita uma nova reversão (o novo rollbackRunId invalida a mensagem velha).
+   */
+  async rollback(
+    id: string,
+    dto: RollbackImportDto,
+  ): Promise<{ job: ImportJob } | { status: 'pending'; changeRequestId: string; job: ImportJob }> {
+    const { userId } = getTenantContext();
+    const job = await this.lockForTransition(id);
+    const requestedAt = Date.parse(job.options?.rollbackRequestedAt ?? '');
+    const stuck = job.status === ImportJobStatus.ROLLING_BACK && requestedAt < Date.now() - STUCK_APPLY_MS;
+    if (!stuck) this.assertRollbackable(job);
+    await this.assertNoOtherActive(job.id);
+
+    const policies = await loadCompanyPolicies();
+    const sensitive = await getImportHandler(job.resource).countRollbackSensitive(
+      getTenantManager(),
+      job.id,
+      policies.price_change.enabled ? policies.price_change.thresholdPercent : null,
+    );
+    const priceSensitive = policies.price_change.enabled && sensitive.priceChange > 0;
+    const archiveSensitive = policies.archive_with_history.enabled && sensitive.archiveWithHistory > 0;
+    if (!stuck && (priceSensitive || archiveSensitive)) {
+      const pending = await applyApprovalGate({
+        policy: priceSensitive ? 'price_change' : 'archive_with_history',
+        entityType: 'import_job',
+        entityId: job.id,
+        entityLabel: job.fileName,
+        operation: 'rollback',
+        payload: {},
+        snapshot: approvalSnapshotOf(job),
+        justification: dto.justification,
+      });
+      if (pending) {
+        job.options = { ...job.options!, rollbackRequestId: pending.changeRequestId };
+        await getTenantManager().save(job);
+        return { status: 'pending', changeRequestId: pending.changeRequestId, job };
+      }
+    }
+
+    await this.startRollback(job, userId || null);
+    return { job };
+  }
+
+  /** Começa (ou recomeça) a reversão: status rolling_back, novo rollbackRunId e mensagem na fila depois do commit. */
+  async startRollback(job: ImportJob, actorUserId: string | null): Promise<void> {
+    const runId = randomUUID();
+    job.status = ImportJobStatus.ROLLING_BACK;
+    job.lastError = null;
+    const { rollbackRequestId: _done, ...options } = job.options!;
+    job.options = {
+      ...options,
+      rollbackRunId: runId,
+      rollbackStartedAt: job.options?.rollbackStartedAt ?? new Date().toISOString(),
+      rollbackRequestedAt: new Date().toISOString(),
+      ...(actorUserId ? { rollbackActorUserId: actorUserId } : {}),
+    };
+    await getTenantManager().save(job);
+    const companyId = job.companyId;
+    afterCommit(async () => {
+      await this.queue.add('rollback', { jobId: job.id, companyId, runId }, { removeOnComplete: 1000, removeOnFail: 1000 });
+    });
+  }
+
+  /** Aprovação do pedido de reversão (SP2): a reversão começa com quem aprovou como liberador. */
+  async startApprovedRollback(jobId: string, approverUserId: string | null): Promise<void> {
+    const job = await getTenantManager().findOne(ImportJob, { where: { id: jobId }, lock: { mode: 'pessimistic_write' } });
+    if (!job) throw invalidState('A importação não existe mais.');
+    this.assertRollbackable(job);
+    await this.assertNoOtherActive(job.id);
+    await this.startRollback(job, approverUserId);
+  }
+
   async retry(id: string): Promise<ImportJob> {
     const { userId } = getTenantContext();
     const job = await this.lockForTransition(id);
@@ -540,12 +616,19 @@ export class ImportJobsService {
     await this.startApply(job, approverUserId);
   }
 
-  /** Pedido recusado, cancelado ou vencido: a importação que esperava por ele é cancelada. */
+  /**
+   * Pedido recusado, cancelado ou vencido: a importação que esperava pela gravação é cancelada; a que esperava pela
+   * reversão continua concluída (e reversível), só perde a marca do pedido.
+   */
   async onRequestClosed(jobId: string): Promise<void> {
     await getTenantManager().query(
       `UPDATE import_jobs SET status = 'cancelled', "lastError" = $2, "completedAt" = now()
         WHERE id = $1 AND status = 'pending_approval'`,
       [jobId, REQUEST_CLOSED_MESSAGE],
+    );
+    await getTenantManager().query(
+      `UPDATE import_jobs SET options = options - 'rollbackRequestId' WHERE id = $1 AND options ? 'rollbackRequestId'`,
+      [jobId],
     );
   }
 

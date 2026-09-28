@@ -249,6 +249,9 @@ export class ApprovalsService {
       case 'import_job.import':
         await this.importJobs.startApprovedApply(request.entityId!, getTenantContext().userId || null);
         return;
+      case 'import_job.rollback':
+        await this.importJobs.startApprovedRollback(request.entityId!, getTenantContext().userId || null);
+        return;
       case 'loss.delete':
         await this.lossesService.remove(request.entityId!, undefined, skip);
         return;

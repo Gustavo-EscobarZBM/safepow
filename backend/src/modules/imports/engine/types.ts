@@ -98,4 +98,12 @@ export interface ImportResourceHandler<E = unknown> {
   archiveMissingBatch(manager: EntityManager, jobId: string, limit: number): Promise<ArchivedRecord[]>;
   /** Prévia da reversão: quantas alterações voltam e a página dos registros em conflito. */
   rollbackPreview(manager: EntityManager, jobId: string, page: number, limit: number): Promise<RollbackPreview>;
+  /** Linhas da reversão que despertam políticas do SP2 (limite de preço nulo = política de preço desligada). */
+  countRollbackSensitive(
+    manager: EntityManager,
+    jobId: string,
+    thresholdPercent: number | null,
+  ): Promise<{ priceChange: number; archiveWithHistory: number }>;
+  /** Reverte até `limit` linhas na transação de `manager`; `{0, 0}` quando não há mais nada. */
+  rollbackBatch(manager: EntityManager, jobId: string, limit: number): Promise<{ restored: number; conflicts: number }>;
 }

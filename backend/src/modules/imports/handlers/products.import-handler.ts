@@ -289,6 +289,97 @@ async function rollbackPreview(manager: EntityManager, jobId: string, page: numb
   return { restore: counts.restore, conflicts: counts.conflicts, items, total: counts.conflicts };
 }
 
+/**
+ * O que a reversão desperta nas políticas do SP2, só entre as linhas que vão mesmo voltar (sem conflito): preço
+ * voltando além do limite contra o preço ATUAL, e arquivamento (desfazer criação/reativação) de produto com perdas.
+ */
+async function countRollbackSensitive(
+  manager: EntityManager,
+  jobId: string,
+  thresholdPercent: number | null,
+): Promise<{ priceChange: number; archiveWithHistory: number }> {
+  const exceeds = (field: 'unitPrice' | 'costPrice') => `(
+    (r.before->>'${field}') IS NOT NULL
+    AND round(p."${field}" * 100) > 0
+    AND abs(round((r.before->>'${field}')::numeric * 100) - round(p."${field}" * 100)) * 100 > $2 * round(p."${field}" * 100))`;
+  const [row]: { priceChange: number; archiveWithHistory: number }[] = await manager.query(
+    `SELECT count(*) FILTER (WHERE $2::numeric IS NOT NULL AND r."appliedAction" IN ('update', 'reactivate')
+                              AND (${exceeds('unitPrice')} OR ${exceeds('costPrice')}))::int AS "priceChange",
+            count(*) FILTER (WHERE r."appliedAction" IN ('create', 'reactivate')
+                              AND EXISTS (SELECT 1 FROM losses l WHERE l."productId" = p.id))::int AS "archiveWithHistory"
+     ${ROLLBACK_ROWS} AND NOT ${ROLLBACK_CONFLICT}`,
+    [jobId, thresholdPercent],
+  );
+  return row;
+}
+
+/**
+ * Um lote da reversão (SP3, spec 2.6), na transação do worker: trava as linhas e os produtos, reconfere o conflito
+ * no momento e desfaz — criado ⇒ arquiva; atualizado ⇒ volta nome/SKU/preços; reativado ⇒ volta os campos e arquiva;
+ * arquivado (ausente) ⇒ reativa. Conflitos ficam como estão. Toda linha do lote sai marcada (`rolledBackAt`).
+ */
+async function rollbackBatch(manager: EntityManager, jobId: string, limit: number): Promise<{ restored: number; conflicts: number }> {
+  const picked: { id: string }[] = await manager.query(
+    `SELECT r.id FROM import_rows r
+      WHERE r."jobId" = $1 AND r."appliedAt" IS NOT NULL AND r."rolledBackAt" IS NULL
+        AND r."appliedAction" IN ('create', 'update', 'reactivate', 'archive')
+      ORDER BY r.id LIMIT $2 FOR UPDATE`,
+    [jobId, limit],
+  );
+  if (picked.length === 0) return { restored: 0, conflicts: 0 };
+  const rowIds = picked.map((r) => r.id);
+  await manager.query(
+    `SELECT id FROM products WHERE id IN (SELECT "productId" FROM import_rows WHERE id = ANY($1)) ORDER BY id FOR UPDATE`,
+    [rowIds],
+  );
+  const rows: { id: string; appliedAction: string; before: Record<string, unknown> | null; productId: string; conflict: boolean }[] =
+    await manager.query(
+      `SELECT r.id, r."appliedAction", r.before, r."productId", ${ROLLBACK_CONFLICT} AS conflict
+         FROM import_rows r LEFT JOIN products p ON p.id = r."productId"
+        WHERE r.id = ANY($1)`,
+      [rowIds],
+    );
+  const restore = rows.filter((r) => !r.conflict);
+  const byAction = (...actions: string[]) => restore.filter((r) => actions.includes(r.appliedAction));
+
+  const fields = byAction('update', 'reactivate');
+  if (fields.length) {
+    await manager.query(
+      `UPDATE products p
+          SET name = v.name, sku = v.sku, "unitPrice" = v."unitPrice", "costPrice" = v."costPrice",
+              "isActive" = COALESCE(v.active, p."isActive"), "updatedAt" = clock_timestamp()
+         FROM unnest($1::uuid[], $2::text[], $3::text[], $4::numeric[], $5::numeric[], $6::boolean[])
+              AS v(id, name, sku, "unitPrice", "costPrice", active)
+        WHERE p.id = v.id`,
+      [
+        fields.map((r) => r.productId),
+        fields.map((r) => asText(r.before?.name)),
+        fields.map((r) => asText(r.before?.sku)),
+        fields.map((r) => asMoney(r.before?.unitPrice)),
+        fields.map((r) => asMoney(r.before?.costPrice)),
+        fields.map((r) => (r.appliedAction === 'reactivate' ? false : null)),
+      ],
+    );
+  }
+  const toggle = async (targets: typeof restore, active: boolean) => {
+    if (!targets.length) return;
+    await manager.query(`UPDATE products SET "isActive" = $2, "updatedAt" = clock_timestamp() WHERE id = ANY($1)`, [
+      targets.map((r) => r.productId),
+      active,
+    ]);
+  };
+  await toggle(byAction('create'), false);
+  await toggle(byAction('archive'), true);
+
+  await manager.query(
+    `UPDATE import_rows SET "rolledBackAt" = now(),
+            "rollbackResult" = CASE WHEN id = ANY($2) THEN 'conflict' ELSE 'restored' END
+      WHERE id = ANY($1)`,
+    [rowIds, rows.filter((r) => r.conflict).map((r) => r.id)],
+  );
+  return { restored: restore.length, conflicts: rows.length - restore.length };
+}
+
 export const productsImportHandler: ImportResourceHandler<ExistingProduct> = {
   resource: 'products',
   keyField: 'barcode',
@@ -403,4 +494,8 @@ export const productsImportHandler: ImportResourceHandler<ExistingProduct> = {
   archiveMissingBatch,
 
   rollbackPreview,
+
+  countRollbackSensitive,
+
+  rollbackBatch,
 };

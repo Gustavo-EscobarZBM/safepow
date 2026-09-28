@@ -11,6 +11,7 @@ import { ProductsService } from '../products/products.service';
 import { StorageService } from '../uploads/storage.service';
 import { xlsxBuffer } from './engine/test-fixtures';
 import { ImportApplier } from './import-applier';
+import { ImportRollbacker } from './import-rollbacker';
 import { ImportSimulator } from './import-simulator';
 
 const MAPPING = { barcode: 'EAN', name: 'Descrição', unitPrice: 'Preço' };
@@ -117,5 +118,52 @@ describe('Pedido de aprovação de importação (SP3, 3.1.2)', () => {
     expect(body.status).toBe('cancelled');
     expect(body.lastError).toBe('Pedido de aprovação recusado, cancelado ou vencido.');
     expect(await requestStatus(requestId)).toBe('expired');
+  });
+
+  describe('reversão com aprovação (SP3, 3.4)', () => {
+    /** Importação aprovada e gravada (Arroz 10 → 15); a reversão (15 → 10) passa do limite de 10%. */
+    async function completedImport(): Promise<string> {
+      const { jobId, requestId } = await pendingImport();
+      await http(baseUrl, 'POST', `/api/change-requests/${requestId}/approve`, approverToken, {});
+      await new ImportApplier(await appDataSource()).run(queue.calls.pop()!.data);
+      expect(await jobStatus(jobId)).toBe('completed');
+      return jobId;
+    }
+
+    async function pendingRollback(jobId: string): Promise<string> {
+      const { status, body } = await http(baseUrl, 'POST', `/api/imports/${jobId}/rollback`, requesterToken, {
+        justification: 'Planilha errada',
+      });
+      expect(status).toBe(202);
+      expect(body.status).toBe('pending');
+      expect(body.job.status).toBe('completed');
+      expect(queue.calls).toHaveLength(0);
+      const [job] = await adminQuery(`SELECT options FROM import_jobs WHERE id = $1`, [jobId]);
+      expect(job.options.rollbackRequestId).toBe(body.changeRequestId);
+      return body.changeRequestId;
+    }
+
+    it('outro gerente aprova: reversão começa e desfaz o preço', async () => {
+      const jobId = await completedImport();
+      const requestId = await pendingRollback(jobId);
+      const approved = await http(baseUrl, 'POST', `/api/change-requests/${requestId}/approve`, approverToken, {});
+      expect(approved.status).toBe(200);
+      expect(await requestStatus(requestId)).toBe('approved');
+      expect(await jobStatus(jobId)).toBe('rolling_back');
+      expect(queue.calls.map((c) => c.name)).toEqual(['rollback']);
+      await new ImportRollbacker(await appDataSource()).run(queue.calls.pop()!.data);
+      expect(await jobStatus(jobId)).toBe('rolled_back');
+      expect((await adminQuery(`SELECT "unitPrice" FROM products WHERE barcode = '100'`))[0].unitPrice).toBe('10.00');
+    });
+
+    it('recusar: a importação continua concluída e pode ser revertida de novo', async () => {
+      const jobId = await completedImport();
+      const requestId = await pendingRollback(jobId);
+      await http(baseUrl, 'POST', `/api/change-requests/${requestId}/reject`, approverToken, { note: 'Não' });
+      expect(await jobStatus(jobId)).toBe('completed');
+      const [job] = await adminQuery(`SELECT options FROM import_jobs WHERE id = $1`, [jobId]);
+      expect(job.options.rollbackRequestId).toBeUndefined();
+      expect((await http(baseUrl, 'GET', `/api/imports/${jobId}/rollback-preview`, requesterToken)).status).toBe(200);
+    });
   });
 });
