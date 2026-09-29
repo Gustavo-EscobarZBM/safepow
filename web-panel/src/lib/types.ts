@@ -19,6 +19,27 @@ export interface Product {
   isActive: boolean;
 }
 
+/** Taxonomias do catálogo (SP4 4.1). Arquivadas continuam ligadas aos produtos. */
+export interface Brand {
+  id: string;
+  name: string;
+  isActive: boolean;
+}
+
+export interface Category extends Brand {
+  parentId: string | null;
+  /** "Mercearia > Bebidas". */
+  path: string;
+}
+
+export interface Supplier extends Brand {
+  taxId?: string | null;
+  contactName?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  notes?: string | null;
+}
+
 /** Origem de uma mudança de preço (backend: product_price_history.source). */
 export type PriceChangeSource = 'manual' | 'import' | 'bulk' | 'retro_fix' | 'erp' | 'approval' | 'backfill';
 
