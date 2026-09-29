@@ -145,7 +145,7 @@ describe('Gravação da importação (SP3, 3.1.2)', () => {
     await readyToApply(jobId);
     await (await applier()).run({ jobId, companyId, runId: 'r1' });
     const [row] = await adminQuery(`SELECT name, "unitPrice", "costPrice" FROM products WHERE barcode = '100'`);
-    expect(row).toEqual({ name: 'Arroz', unitPrice: '12.00', costPrice: '6.00' });
+    expect(row).toEqual({ name: 'Arroz', unitPrice: '12.00', costPrice: '6.0000' });
   });
 
   it('catálogo mudou entre a simulação e a gravação: recalcula contra o estado atual', async () => {
