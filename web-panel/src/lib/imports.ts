@@ -169,6 +169,9 @@ export const WARNING_LABELS: Record<string, string> = {
   PRICE_JUMP: 'Variação de preço de 50% ou mais',
   COST_ABOVE_PRICE: 'Custo maior que o preço',
   DUPLICATE_IDENTICAL: 'Linha repetida (ignorada)',
+  CATEGORY_WILL_BE_CREATED: 'Categoria será criada',
+  BRAND_WILL_BE_CREATED: 'Marca será criada',
+  SUPPLIER_WILL_BE_CREATED: 'Fornecedor será criado',
 };
 
 const FIELD_LABELS: Record<string, string> = {
@@ -177,6 +180,12 @@ const FIELD_LABELS: Record<string, string> = {
   sku: 'SKU',
   unitPrice: 'Preço de venda',
   costPrice: 'Custo',
+  category: 'Categoria',
+  brand: 'Marca',
+  supplier: 'Fornecedor',
+  unit: 'Unidade',
+  isPerishable: 'Perecível',
+  shelfLifeDays: 'Validade (dias)',
 };
 const PRICE_FIELDS = ['unitPrice', 'costPrice'];
 
@@ -222,6 +231,7 @@ export function downloadBlob(blob: Blob, fileName: string): void {
 function formatValue(field: string, value: unknown): string {
   if (value === null || value === undefined || value === '') return '—';
   if (PRICE_FIELDS.includes(field)) return formatBRL(Number(value));
+  if (typeof value === 'boolean') return value ? 'Sim' : 'Não';
   return String(value);
 }
 

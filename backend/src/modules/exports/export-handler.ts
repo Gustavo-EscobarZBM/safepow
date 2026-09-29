@@ -1,6 +1,6 @@
 import { EntityManager } from 'typeorm';
 
-export type ExportCellType = 'text' | 'money' | 'datetime';
+export type ExportCellType = 'text' | 'money' | 'cost' | 'datetime';
 export type ExportFormat = 'xlsx' | 'csv';
 export const EXPORT_FORMATS: readonly ExportFormat[] = ['xlsx', 'csv'];
 

@@ -55,6 +55,9 @@ describe('buildImportReportCsv', () => {
         'NAME_TRUNCATED',
         'PRICE_JUMP',
         'PRICE_ROUNDED',
+        'CATEGORY_WILL_BE_CREATED',
+        'BRAND_WILL_BE_CREATED',
+        'SUPPLIER_WILL_BE_CREATED',
       ].sort(),
     );
   });

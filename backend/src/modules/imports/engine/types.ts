@@ -32,6 +32,8 @@ export interface PlanContext {
   updateFields: string[];
   /** Limite da política price_change; `null` = política desligada. */
   priceThresholdPercent: number | null;
+  /** O que `prepareBatch` devolveu para o lote (só na simulação). */
+  batch?: unknown;
 }
 
 export interface MissingPage {
@@ -86,6 +88,11 @@ export interface ImportResourceHandler<E = unknown> {
   fields: ImportFieldDef[];
   loadExisting(manager: EntityManager, keys: string[]): Promise<Map<string, E>>;
   plan(values: Record<string, unknown>, existing: E | undefined, ctx: PlanContext): RowPlan;
+  /**
+   * Dados do banco que o plano de um lote precisa além dos registros da chave (ex.: nomes de categorias existentes,
+   * para avisar "será criada"). Vai para `plan` em `ctx.batch`.
+   */
+  prepareBatch?(manager: EntityManager, rows: Record<string, unknown>[]): Promise<unknown>;
   countMissing(manager: EntityManager, jobId: string): Promise<{ count: number; withHistory: number }>;
   listMissing(manager: EntityManager, jobId: string, page: number, limit: number): Promise<MissingPage>;
   /** Registros ativos da empresa (base dos 20% da confirmação forte de "arquivar ausentes"). */

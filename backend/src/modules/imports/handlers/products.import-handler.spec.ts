@@ -24,14 +24,41 @@ const ctx = (over: Partial<{ mappedFields: string[]; updateFields: string[]; pri
 
 describe('productsImportHandler — campos', () => {
   it('chaves, obrigatórios e atualizáveis', () => {
-    expect(handler.fields.map((f) => f.key)).toEqual(['barcode', 'name', 'sku', 'unitPrice', 'costPrice']);
+    expect(handler.fields.map((f) => f.key)).toEqual([
+      'barcode',
+      'name',
+      'sku',
+      'unitPrice',
+      'costPrice',
+      'category',
+      'brand',
+      'supplier',
+      'unit',
+      'isPerishable',
+      'shelfLifeDays',
+    ]);
     expect(handler.fields.filter((f) => f.required).map((f) => f.key)).toEqual(['barcode', 'name']);
     expect(handler.fields.filter((f) => !f.updatable).map((f) => f.key)).toEqual(['barcode']);
     expect(handler.keyField).toBe('barcode');
     expect(handler.resource).toBe('products');
   });
   it('rótulos em português', () => {
-    expect(handler.fields.map((f) => f.label)).toEqual(['Código de barras', 'Nome', 'SKU', 'Preço de venda', 'Custo']);
+    expect(handler.fields.map((f) => f.label)).toEqual([
+      'Código de barras',
+      'Nome',
+      'SKU',
+      'Preço de venda',
+      'Custo',
+      'Categoria',
+      'Marca',
+      'Fornecedor',
+      'Unidade',
+      'Perecível',
+      'Validade (dias)',
+    ]);
+  });
+  it('custo aceita 4 casas', () => {
+    expect(handler.fields.find((f) => f.key === 'costPrice')!.normalize('3,1234').value).toBe(3.1234);
   });
 });
 

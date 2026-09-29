@@ -76,7 +76,11 @@ export function normalizeBarcode(text: string | null): NormalizeResult<string | 
  * decimal; um separador sozinho, se aparece uma vez, é decimal, e se aparece mais de uma, é de milhar.
  * Arredonda para 2 casas pelo TEXTO (12,345 ⇒ 12,35 — em ponto flutuante daria 12,34).
  */
-export function parseMoney(text: string | null): NormalizeResult<number | null> {
+export function parseMoney(text: string | null, opts: { decimals?: 2 | 4 } = {}): NormalizeResult<number | null> {
+  const decimals = opts.decimals ?? 2;
+  const scale = 10 ** decimals;
+  // numeric(12,2) cabe até 1e10; numeric(12,4) (custo, SP4 4.1) até 1e8.
+  const maxMoney = decimals === 4 ? 1e8 : MAX_MONEY;
   const original = (text ?? '').trim();
   if (!original) return ok(null);
   const invalid = () => fail(null, `Preço inválido: "${original}".`);
@@ -106,13 +110,13 @@ export function parseMoney(text: string | null): NormalizeResult<number | null> 
   if (!/^\d+$/.test(intPart) || !/^\d*$/.test(fracPart)) return invalid();
   if (negative) return fail(null, `Preço negativo: "${original}".`);
 
-  let cents = Number(intPart) * 100 + Number(fracPart.slice(0, 2).padEnd(2, '0'));
-  if (fracPart.length > 2) {
-    if (Number(fracPart[2]) >= 5) cents += 1;
+  let units = Number(intPart) * scale + Number(fracPart.slice(0, decimals).padEnd(decimals, '0'));
+  if (fracPart.length > decimals) {
+    if (Number(fracPart[decimals]) >= 5) units += 1;
     warnings.push('PRICE_ROUNDED');
   }
-  const value = cents / 100;
-  if (value >= MAX_MONEY) return fail(null, `Preço acima do limite: "${original}".`);
+  const value = units / scale;
+  if (value >= maxMoney) return fail(null, `Preço acima do limite: "${original}".`);
   return ok(value, warnings);
 }
 
@@ -129,6 +133,66 @@ export function normalizeName(text: string | null): NormalizeResult<string | nul
   if (!name) return fail(null, 'Nome do produto vazio.');
   if (name.length > MAX_NAME_LENGTH) return ok(name.slice(0, MAX_NAME_LENGTH), ['NAME_TRUNCATED']);
   return ok(name);
+}
+
+const MAX_CATEGORY_LEVELS = 3;
+const MAX_CATEGORY_NAME_LENGTH = 80;
+
+/** "Mercearia > Bebidas" ou "Mercearia/Bebidas" ⇒ ['Mercearia', 'Bebidas'] (SP4 4.1). */
+export function normalizeCategoryPath(text: string | null): NormalizeResult<string[] | null> {
+  const parts = unprotectFormula((text ?? '').trim())
+    .split(/[>/]/)
+    .map((part) => part.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  if (parts.length === 0) return ok(null);
+  if (parts.length > MAX_CATEGORY_LEVELS) return fail(null, `Categoria com mais de ${MAX_CATEGORY_LEVELS} níveis.`);
+  if (parts.some((p) => p.length > MAX_CATEGORY_NAME_LENGTH)) {
+    return fail(null, `Categoria com mais de ${MAX_CATEGORY_NAME_LENGTH} caracteres.`);
+  }
+  return ok(parts);
+}
+
+const stripAccents = (text: string) => text.normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+const UNIT_SYNONYMS: Record<string, string> = {
+  un: 'UN', und: 'UN', unid: 'UN', unidade: 'UN', pc: 'UN', peca: 'UN',
+  kg: 'KG', quilo: 'KG', kilo: 'KG', quilograma: 'KG',
+  g: 'G', gr: 'G', grama: 'G',
+  l: 'L', lt: 'L', litro: 'L',
+  ml: 'ML', mililitro: 'ML',
+  cx: 'CX', caixa: 'CX',
+  pct: 'PCT', pacote: 'PCT',
+  dz: 'DZ', duzia: 'DZ',
+  m: 'M', mt: 'M', metro: 'M',
+};
+
+export function normalizeUnit(text: string | null): NormalizeResult<string | null> {
+  const original = (text ?? '').trim();
+  if (!original) return ok(null);
+  const unit = UNIT_SYNONYMS[stripAccents(original).toLowerCase().replace(/\.$/, '')];
+  return unit ? ok(unit) : fail(null, `Unidade desconhecida: "${original}".`);
+}
+
+const TRUE_WORDS = ['sim', 's', 'x', '1', 'true'];
+const FALSE_WORDS = ['nao', 'n', '0', 'false'];
+
+export function parseBooleanPt(text: string | null): NormalizeResult<boolean | null> {
+  const original = (text ?? '').trim();
+  if (!original) return ok(null);
+  const word = stripAccents(original).toLowerCase();
+  if (TRUE_WORDS.includes(word)) return ok(true);
+  if (FALSE_WORDS.includes(word)) return ok(false);
+  return fail(null, `Valor inválido para Sim/Não: "${original}".`);
+}
+
+/** Validade em dias (SP4 4.1): inteiro ≥ 1; aceita "30 dias". */
+export function parseShelfLifeDays(text: string | null): NormalizeResult<number | null> {
+  const original = (text ?? '').trim();
+  if (!original) return ok(null);
+  const match = /^(\d+)(\s*dias?)?$/i.exec(original);
+  const days = match ? Number(match[1]) : NaN;
+  if (!Number.isInteger(days) || days < 1) return fail(null, `Validade inválida: "${original}". Use o número de dias.`);
+  return ok(days);
 }
 
 export function normalizeSku(text: string | null): NormalizeResult<string | null> {

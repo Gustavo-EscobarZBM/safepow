@@ -41,6 +41,18 @@ describe('isPolling', () => {
   });
 });
 
+describe('describeDiff — campos de catálogo (SP4 4.1)', () => {
+  it('perecível em Sim/Não e categoria com rótulo', () => {
+    expect(
+      describeDiff({
+        isPerishable: { from: false, to: true },
+        category: { from: null, to: 'Mercearia > Bebidas' },
+        shelfLifeDays: { from: null, to: 30 },
+      }),
+    ).toEqual(['Perecível: Não → Sim', 'Categoria: — → Mercearia > Bebidas', 'Validade (dias): — → 30']);
+  });
+});
+
 describe('describeDiff', () => {
   it('preço em reais, nome e reativação', () => {
     expect(

@@ -80,6 +80,12 @@ describe('formatCsvValue', () => {
     expect(formatCsvValue('money', '10.5')).toBe('10,50');
     expect(formatCsvValue('money', null)).toBe('');
   });
+  it('custo com 2 a 4 casas (SP4 4.1)', () => {
+    expect(formatCsvValue('cost', '3.1234')).toBe('3,1234');
+    expect(formatCsvValue('cost', '6.0000')).toBe('6,00');
+    expect(formatCsvValue('cost', '6.5000')).toBe('6,50');
+    expect(formatCsvValue('cost', '0.1230')).toBe('0,123');
+  });
   it('data e hora de São Paulo', () => {
     expect(formatCsvValue('datetime', new Date('2026-09-28T15:04:00Z'))).toBe('28/09/2026 12:04');
   });
