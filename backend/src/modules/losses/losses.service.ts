@@ -10,7 +10,8 @@ import { LossReason } from '../loss-reasons/loss-reason.entity';
 import { Product } from '../products/product.entity';
 import { User, UserRole } from '../users/user.entity';
 import { CreateLossDto } from './dto/create-loss.dto';
-import { QueryLossesDto } from './dto/query-losses.dto';
+import { QueryLossesByCategoryDto, QueryLossesDto } from './dto/query-losses.dto';
+import { lossesByCategory, lossesBySupplier } from './losses-reports-catalog';
 import { UpdateLossDto } from './dto/update-loss.dto';
 import { Loss } from './loss.entity';
 import { computeLossAlerts, type LossAlert } from './losses-alerts';
@@ -343,6 +344,16 @@ export class LossesService {
     }
 
     return qb.getRawMany();
+  }
+
+  /** Composição por categoria (SP4 4.1): `root` soma as subcategorias; categoria atual do produto. */
+  reportByCategory(query: QueryLossesByCategoryDto) {
+    return lossesByCategory(getTenantManager(), query.level ?? 'root', query.from, query.to);
+  }
+
+  /** Composição por fornecedor principal atual do produto (SP4 4.1). */
+  reportBySupplier(query: QueryLossesDto) {
+    return lossesBySupplier(getTenantManager(), query.from, query.to);
   }
 
   /** Composição das perdas por local — segunda visão do gráfico de rosca. */
