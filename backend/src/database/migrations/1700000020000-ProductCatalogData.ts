@@ -159,6 +159,31 @@ export class ProductCatalogData1700000020000 implements MigrationInterface {
     await queryRunner.query(`CREATE INDEX "idx_products_supplier" ON "products" ("supplierId")`);
 
     await this.setCostScale(queryRunner, 4);
+    await this.replaceValuationFallback(queryRunner, 'numeric');
+  }
+
+  /**
+   * O fallback da 13000 declarava as variáveis como numeric(12,2): uma perda sem custo congelado herdaria o custo
+   * do produto cortado em 2 casas. Mesmo corpo, só o tipo das variáveis muda.
+   */
+  private async replaceValuationFallback(queryRunner: QueryRunner, costType: 'numeric' | 'numeric(12,2)'): Promise<void> {
+    await queryRunner.query(`
+      CREATE OR REPLACE FUNCTION losses_valuation_fallback() RETURNS TRIGGER AS $$
+      DECLARE
+        current_price numeric(12,2);
+        current_cost  ${costType};
+      BEGIN
+        IF NEW."unitPriceAtLoss" IS NULL OR NEW."unitCostAtLoss" IS NULL THEN
+          SELECT "unitPrice", "costPrice" INTO current_price, current_cost
+          FROM products WHERE id = NEW."productId";
+          NEW."unitPriceAtLoss" := COALESCE(NEW."unitPriceAtLoss", current_price);
+          NEW."unitCostAtLoss"  := COALESCE(NEW."unitCostAtLoss", current_cost);
+          NEW."valuationSource" := 'fallback_current';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql SET search_path = public, pg_temp
+    `);
   }
 
   /**
@@ -178,6 +203,7 @@ export class ProductCatalogData1700000020000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    await this.replaceValuationFallback(queryRunner, 'numeric(12,2)');
     await this.setCostScale(queryRunner, 2);
     await queryRunner.query(`
       ALTER TABLE "products"

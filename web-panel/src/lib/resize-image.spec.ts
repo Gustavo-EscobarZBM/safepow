@@ -19,7 +19,13 @@ describe('resizeImage (SP4 4.1)', () => {
     vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 1600, height: 1200, close: vi.fn() })));
     const drawImage = vi.fn();
     const toBlob = vi.fn((done: (blob: Blob) => void, type: string) => done(new Blob(['jpeg'], { type })));
-    const canvas = { width: 0, height: 0, getContext: () => ({ drawImage }), toBlob };
+    const calls: string[] = [];
+    const context = {
+      fillStyle: '',
+      fillRect: vi.fn(() => calls.push(`fill ${context.fillStyle}`)),
+      drawImage: vi.fn((...args: unknown[]) => { calls.push('draw'); drawImage(...args); }),
+    };
+    const canvas = { width: 0, height: 0, getContext: () => context, toBlob };
     vi.spyOn(document, 'createElement').mockReturnValueOnce(canvas as unknown as HTMLCanvasElement);
 
     const blob = await resizeImage(new File(['x'], 'foto.png', { type: 'image/png' }));
@@ -28,6 +34,9 @@ describe('resizeImage (SP4 4.1)', () => {
     expect(drawImage).toHaveBeenCalledWith(expect.anything(), 0, 0, 800, 600);
     expect(blob.type).toBe('image/jpeg');
     expect(toBlob).toHaveBeenCalledWith(expect.any(Function), 'image/jpeg', 0.85);
+    // PNG transparente (foto de fabricante) vira JPEG com fundo branco, não preto.
+    expect(calls).toEqual(['fill #ffffff', 'draw']);
+    expect(context.fillRect).toHaveBeenCalledWith(0, 0, 800, 600);
   });
 
   it('imagem que o navegador não lê (ex.: HEIC) vira mensagem amigável', async () => {

@@ -25,6 +25,9 @@ export async function resizeImage(file: File, maxSide = PRODUCT_IMAGE_MAX_SIDE):
   canvas.height = height;
   const context = canvas.getContext('2d');
   if (!context) throw new Error(UNREADABLE);
+  // JPEG não tem transparência: sem o fundo branco, o PNG recortado do fabricante sairia com fundo preto.
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, width, height);
   context.drawImage(bitmap, 0, 0, width, height);
   bitmap.close?.();
   return new Promise((resolve, reject) =>

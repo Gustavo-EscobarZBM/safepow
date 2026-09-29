@@ -151,7 +151,7 @@ export function RetroFixDialog({ product, open, onOpenChange, onApplied }: Retro
                 id="retro-cost"
                 type="number"
                 min={0}
-                step="0.01"
+                step="0.0001"
                 value={costPrice}
                 onChange={(e) => changeParam(setCostPrice)(e.target.value)}
               />

@@ -1,3 +1,4 @@
+import { seedLoss, seedUser } from '../test-utils/approvals-test-app';
 import { adminQuery, closeTestConnections, seedCompany, seedProduct, truncateAll, withTenant } from '../test-utils/test-db';
 
 async function insertCategory(companyId: string, name: string, parentId: string | null = null): Promise<string> {
@@ -99,6 +100,14 @@ describe('migration 1700000020000 — dados de catálogo do produto (SP4 4.1)', 
         ORDER BY table_name`,
     );
     expect(scales.map((s: { numeric_scale: number }) => s.numeric_scale)).toEqual([4, 4, 4]);
+  });
+
+  it('perda sem custo congelado herda o custo do produto com 4 casas (trigger de fallback)', async () => {
+    const companyId = await seedCompany('Empresa Fallback');
+    const productId = await seedProduct({ companyId, barcode: '7890000000009', unitPrice: 10, costPrice: 3.1234 });
+    const lossId = await seedLoss(companyId, productId, await seedUser(companyId));
+    const [loss] = await adminQuery(`SELECT "unitCostAtLoss", "valuationSource" FROM losses WHERE id = $1`, [lossId]);
+    expect(loss).toEqual({ unitCostAtLoss: '3.1234', valuationSource: 'fallback_current' });
   });
 
   it('recusa unidade desconhecida e validade não positiva', async () => {
