@@ -18,7 +18,7 @@ import { AlertsCard } from '@/components/alerts-card';
 import { DashboardHero } from '@/components/dashboard-hero';
 import { KpiTile } from '@/components/kpi-card';
 import { LossesTrendChart } from '@/components/losses-trend-chart';
-import { LossesBreakdownChart } from '@/components/losses-breakdown-chart';
+import { LossesBreakdownChart, type BreakdownRow } from '@/components/losses-breakdown-chart';
 import { ShrinkageGauge } from '@/components/shrinkage-gauge';
 import { SuspiciousPatternsCard } from '@/components/suspicious-patterns-card';
 import { TopOffendersTable } from '@/components/top-offenders-table';
@@ -29,6 +29,9 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+
+/** Visões do gráfico de composição; categoria e fornecedor desde o SP4 4.1. */
+type CompositionView = 'reason' | 'location' | 'category' | 'supplier';
 
 function toDateInputValue(date: Date) {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -49,6 +52,8 @@ export default function DashboardPage() {
   const [byPeriod, setByPeriod] = useState<LossByPeriodRow[]>([]);
   const [byReason, setByReason] = useState<LossByReasonRow[]>([]);
   const [byLocation, setByLocation] = useState<LossByLocationRow[]>([]);
+  const [byCategory, setByCategory] = useState<BreakdownRow[]>([]);
+  const [bySupplier, setBySupplier] = useState<BreakdownRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [initialError, setInitialError] = useState<string | null>(null);
@@ -56,7 +61,7 @@ export default function DashboardPage() {
   const [to, setTo] = useState('');
   const [quickPeriod, setQuickPeriod] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
-  const [compositionView, setCompositionView] = useState<'reason' | 'location'>('reason');
+  const [compositionView, setCompositionView] = useState<CompositionView>('reason');
   const [productQuery, setProductQuery] = useState('');
   const now = useMemo(() => new Date(), []);
   const [revenueInput, setRevenueInput] = useState('');
@@ -78,12 +83,17 @@ export default function DashboardPage() {
       api.get<LossByPeriodRow[]>(`losses/reports/by-period${qs}`),
       api.get<LossByReasonRow[]>(`losses/reports/by-reason${qs}`),
       api.get<LossByLocationRow[]>(`losses/reports/by-location${qs}`),
+      // SP4 4.1: categoria no nível raiz (Mercearia soma Bebidas, Refrigerantes…) e fornecedor principal.
+      api.get<BreakdownRow[]>(`losses/reports/by-category${qs ? `${qs}&` : '?'}level=root`),
+      api.get<BreakdownRow[]>(`losses/reports/by-supplier${qs}`),
     ])
-      .then(([product, period, reason, location]) => {
+      .then(([product, period, reason, location, category, supplier]) => {
         setByProduct(product);
         setByPeriod(period);
         setByReason(reason);
         setByLocation(location);
+        setByCategory(category);
+        setBySupplier(supplier);
         setError(null);
         setLastUpdatedAt(new Date());
       })
@@ -363,15 +373,19 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="flex flex-row items-start justify-between">
             <CardTitle>Composição das perdas</CardTitle>
-            <Tabs value={compositionView} onValueChange={(v) => setCompositionView(v as 'reason' | 'location')}>
+            <Tabs value={compositionView} onValueChange={(v) => setCompositionView(v as CompositionView)}>
               <TabsList>
                 <TabsTrigger value="reason">Por motivo</TabsTrigger>
                 <TabsTrigger value="location">Por local</TabsTrigger>
+                <TabsTrigger value="category">Por categoria</TabsTrigger>
+                <TabsTrigger value="supplier">Por fornecedor</TabsTrigger>
               </TabsList>
             </Tabs>
           </CardHeader>
           <CardContent>
-            <LossesBreakdownChart byReason={byReason} byLocation={byLocation} view={compositionView} />
+            <LossesBreakdownChart
+              rows={{ reason: byReason, location: byLocation, category: byCategory, supplier: bySupplier }[compositionView]}
+            />
           </CardContent>
         </Card>
       </div>

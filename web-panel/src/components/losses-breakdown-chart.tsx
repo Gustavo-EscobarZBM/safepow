@@ -2,7 +2,6 @@
 
 import { useMemo } from 'react';
 import { Cell, Pie, PieChart } from 'recharts';
-import type { LossByLocationRow, LossByReasonRow } from '@/lib/types';
 import { EmptyState } from '@/components/empty-state';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
 import { formatBRL } from '@/lib/format';
@@ -15,17 +14,13 @@ const SLICE_COLORS = [
   'rgb(var(--chart-5))',
 ];
 
-export function LossesBreakdownChart({
-  byReason,
-  byLocation,
-  view,
-}: {
-  byReason: LossByReasonRow[];
-  byLocation: LossByLocationRow[];
-  view: 'reason' | 'location';
-}) {
-  const rows = view === 'reason' ? byReason : byLocation;
+/** Linha de qualquer visão da composição (motivo, local, categoria, fornecedor). */
+export interface BreakdownRow {
+  label: string;
+  totalFinancialLoss: string | number;
+}
 
+export function LossesBreakdownChart({ rows }: { rows: BreakdownRow[] }) {
   const chartData = useMemo(
     () =>
       rows.map((row, i) => ({
