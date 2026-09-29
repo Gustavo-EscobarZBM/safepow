@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { suggestMapping } from '../engine/mapping';
 import { getImportHandler } from './index';
 import { ExistingProduct, productsImportHandler as handler } from './products.import-handler';
 
@@ -133,5 +134,12 @@ describe('getImportHandler', () => {
   it('desconhecido ⇒ 400', () => {
     expect(() => getImportHandler('users')).toThrow(BadRequestException);
     expect(() => getImportHandler('users')).toThrow('Tipo de importação desconhecido.');
+  });
+});
+
+describe('productsImportHandler — sugestão da validade (SP4 4.1)', () => {
+  it('"Validade" sozinha (costuma ser a data do lote) não é ligada aos dias; "Validade (dias)" é', () => {
+    expect(suggestMapping(['EAN', 'Descrição', 'Validade'], handler.fields).shelfLifeDays).toBeUndefined();
+    expect(suggestMapping(['EAN', 'Descrição', 'Validade (dias)'], handler.fields).shelfLifeDays).toBe('Validade (dias)');
   });
 });

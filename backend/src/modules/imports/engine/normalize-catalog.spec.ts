@@ -5,7 +5,8 @@ describe('normalizeCategoryPath (SP4 4.1)', () => {
     ['vazio', null, null],
     ['um nível', ' Mercearia ', ['Mercearia']],
     ['separador >', 'Mercearia > Bebidas', ['Mercearia', 'Bebidas']],
-    ['separador /', 'Mercearia/Bebidas/Refrigerantes', ['Mercearia', 'Bebidas', 'Refrigerantes']],
+    ['vários níveis', 'Mercearia > Bebidas > Refrigerantes', ['Mercearia', 'Bebidas', 'Refrigerantes']],
+    ['"/" faz parte do nome (é o que a exportação grava)', 'Frios/Laticínios > Queijos', ['Frios/Laticínios', 'Queijos']],
     ['espaços internos repetidos e partes vazias', 'Mercearia >>  Bebidas  Quentes', ['Mercearia', 'Bebidas Quentes']],
   ])('%s', (_name, text, expected) => {
     const result = normalizeCategoryPath(text);
@@ -14,7 +15,7 @@ describe('normalizeCategoryPath (SP4 4.1)', () => {
   });
 
   it('mais de 3 níveis é erro', () => {
-    expect(normalizeCategoryPath('A/B/C/D').errors).toEqual(['Categoria com mais de 3 níveis.']);
+    expect(normalizeCategoryPath('A > B > C > D').errors).toEqual(['Categoria com mais de 3 níveis.']);
   });
 
   it('nível com mais de 80 caracteres é erro', () => {
@@ -85,6 +86,12 @@ describe('parseShelfLifeDays (SP4 4.1)', () => {
     const result = parseShelfLifeDays(text);
     expect(result.errors).toEqual([]);
     expect(result.value).toBe(expected);
+  });
+
+  it('coluna com data (validade do lote) tem mensagem própria', () => {
+    expect(parseShelfLifeDays('31/12/2026').errors).toEqual([
+      'A coluna de validade parece ter datas ("31/12/2026"); aqui vai a validade em dias.',
+    ]);
   });
 
   it.each(['0', '-5', '2,5', 'abc'])('"%s" é erro', (text) => {

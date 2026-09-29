@@ -98,6 +98,13 @@ describe('Categorias, marcas e fornecedores (SP4 4.1)', () => {
     ]);
   });
 
+  it('categoria: ">" no nome → 400 (é o separador de níveis na planilha); "/" pode', async () => {
+    const bad = await post('categories', { name: 'Frios > Queijos' });
+    expect(bad.status).toBe(400);
+    expect(bad.body.message).toEqual(['O nome da categoria não pode ter ">" (é o separador de níveis).']);
+    expect((await post('categories', { name: 'Frios/Laticínios' })).status).toBe(201);
+  });
+
   it('categoria: pai inexistente → 400', async () => {
     const { status } = await post('categories', { name: 'Solta', parentId: '00000000-0000-4000-8000-000000000000' });
     expect(status).toBe(400);

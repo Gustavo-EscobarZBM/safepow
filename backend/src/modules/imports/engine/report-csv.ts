@@ -14,6 +14,9 @@ export const WARNING_LABELS: Record<string, string> = {
   CATEGORY_WILL_BE_CREATED: 'Categoria será criada',
   BRAND_WILL_BE_CREATED: 'Marca será criada',
   SUPPLIER_WILL_BE_CREATED: 'Fornecedor será criado',
+  CATEGORY_WILL_BE_REACTIVATED: 'Categoria arquivada será reativada',
+  BRAND_WILL_BE_REACTIVATED: 'Marca arquivada será reativada',
+  SUPPLIER_WILL_BE_REACTIVATED: 'Fornecedor arquivado será reativado',
 };
 
 export interface ReportRow {

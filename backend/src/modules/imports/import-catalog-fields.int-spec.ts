@@ -117,12 +117,29 @@ describe('Importação com dados de catálogo (SP4 4.1)', () => {
     const [bebidas] = await adminQuery(`INSERT INTO categories ("companyId", name) VALUES ($1, 'Bebidas') RETURNING id`, [companyId]);
     await adminQuery(`INSERT INTO brands ("companyId", name, "isActive") VALUES ($1, 'Antiga', false)`, [companyId]);
     const jobId = await simulated([['333', 'Suco', '2', 'bebidas', 'antiga', '', '', '', '']]);
+    const [simulation] = await adminQuery(`SELECT summary FROM import_jobs WHERE id = $1`, [jobId]);
+    expect(simulation.summary.warnings).toMatchObject({ BRAND_WILL_BE_REACTIVATED: 1 });
+    expect(simulation.summary.warnings.BRAND_WILL_BE_CREATED).toBeUndefined();
     await apply(jobId);
 
     const [row] = await adminQuery(`SELECT "categoryId" FROM products WHERE barcode = '333'`);
     expect(row.categoryId).toBe(bebidas.id);
     expect(await adminQuery(`SELECT count(*)::int AS n FROM categories`)).toEqual([{ n: 1 }]);
     expect(await adminQuery(`SELECT "isActive" FROM brands WHERE name = 'Antiga'`)).toEqual([{ isActive: true }]);
+  });
+
+  it('marca arquivada que o produto já usa e não muda continua arquivada (planilha mensal do ERP)', async () => {
+    const productId = await seedProduct({ companyId, barcode: '777', name: 'Biscoito', costPrice: 2 });
+    const [brand] = await adminQuery(`INSERT INTO brands ("companyId", name, "isActive") VALUES ($1, 'Velha', false) RETURNING id`, [companyId]);
+    await adminQuery(`UPDATE products SET "brandId" = $1 WHERE id = $2`, [brand.id, productId]);
+
+    const jobId = await simulated([['777', 'Biscoito', '2,50', '', 'Velha', '', '', '', '']]);
+    const [simulation] = await adminQuery(`SELECT summary FROM import_jobs WHERE id = $1`, [jobId]);
+    expect(simulation.summary.warnings.BRAND_WILL_BE_REACTIVATED).toBeUndefined();
+    await apply(jobId);
+
+    expect(await adminQuery(`SELECT "isActive" FROM brands WHERE id = $1`, [brand.id])).toEqual([{ isActive: false }]);
+    expect((await productRow('777')).costPrice).toBe('2.5000');
   });
 
   it('atualização mostra o diff dos campos novos e a reversão volta os valores anteriores', async () => {
@@ -144,7 +161,7 @@ describe('Importação com dados de catálogo (SP4 4.1)', () => {
 
   it('unidade desconhecida e categoria com 4 níveis viram erro da linha', async () => {
     const jobId = await simulated([
-      ['555', 'A', '1', 'A/B/C/D', '', '', '', '', ''],
+      ['555', 'A', '1', 'A > B > C > D', '', '', '', '', ''],
       ['666', 'B', '1', '', '', '', 'xx', '', ''],
     ]);
     const rows = await adminQuery(`SELECT key, action, errors FROM import_rows WHERE "jobId" = $1 ORDER BY key`, [jobId]);

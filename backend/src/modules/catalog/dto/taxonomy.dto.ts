@@ -1,4 +1,7 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength, ValidateIf } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, MaxLength, ValidateIf } from 'class-validator';
+
+/** ">" separa os níveis da categoria na planilha ("Mercearia > Bebidas"): não pode fazer parte do nome. */
+const NO_LEVEL_SEPARATOR = Matches(/^[^>]*$/, { message: 'O nome da categoria não pode ter ">" (é o separador de níveis).' });
 
 export class ListTaxonomyQueryDto {
   @IsOptional()
@@ -22,6 +25,9 @@ export class UpdateBrandDto {
 }
 
 export class CreateCategoryDto extends CreateBrandDto {
+  @NO_LEVEL_SEPARATOR
+  declare name: string;
+
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
   @IsUUID()
@@ -29,6 +35,9 @@ export class CreateCategoryDto extends CreateBrandDto {
 }
 
 export class UpdateCategoryDto extends UpdateBrandDto {
+  @NO_LEVEL_SEPARATOR
+  declare name?: string;
+
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
   @IsUUID()

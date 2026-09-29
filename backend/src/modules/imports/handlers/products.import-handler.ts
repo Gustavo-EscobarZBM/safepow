@@ -54,8 +54,11 @@ const TAXONOMY_LABELS = { category: 'categoryPath', brand: 'brandName', supplier
 type TaxonomyField = keyof typeof TAXONOMY_LABELS;
 const isTaxonomy = (field: string): field is TaxonomyField => field in TAXONOMY_LABELS;
 
-/** Nomes (minúsculos) que já existem na empresa, arquivados inclusive — o que faltar será criado na gravação. */
-type KnownTaxonomies = Record<TaxonomyField, Set<string>>;
+/**
+ * Nomes (minúsculos) que já existem na empresa, separados em ativos e arquivados: o que faltar será criado na
+ * gravação, e o arquivado que a linha vai gravar é reativado — as duas coisas aparecem como aviso na simulação.
+ */
+type KnownTaxonomies = Record<TaxonomyField, { active: Set<string>; archived: Set<string> }>;
 
 /** Nome de marca/fornecedor: espaços normalizados, sem a proteção de fórmula da exportação, com limite de tamanho. */
 function normalizeTaxonomyName(maxLength: number, label: string) {
@@ -87,17 +90,17 @@ function currentOf(field: string, existing: ExistingProduct): unknown {
   return existing[field as keyof ExistingProduct] ?? null;
 }
 
-const WILL_BE_CREATED: Record<TaxonomyField, string> = {
-  category: 'CATEGORY_WILL_BE_CREATED',
-  brand: 'BRAND_WILL_BE_CREATED',
-  supplier: 'SUPPLIER_WILL_BE_CREATED',
-};
+const TAXONOMY_WARNING_PREFIX: Record<TaxonomyField, string> = { category: 'CATEGORY', brand: 'BRAND', supplier: 'SUPPLIER' };
 
 function taxonomyWarnings(diff: Record<string, { from: unknown; to: unknown }>, known: KnownTaxonomies | undefined): string[] {
   if (!known) return [];
-  return (Object.keys(WILL_BE_CREATED) as TaxonomyField[])
-    .filter((field) => diff[field]?.to && !known[field].has(String(diff[field].to).toLowerCase()))
-    .map((field) => WILL_BE_CREATED[field]);
+  const warnings: string[] = [];
+  for (const field of Object.keys(TAXONOMY_WARNING_PREFIX) as TaxonomyField[]) {
+    const name = diff[field]?.to ? String(diff[field].to).toLowerCase() : null;
+    if (!name || known[field].active.has(name)) continue;
+    warnings.push(`${TAXONOMY_WARNING_PREFIX[field]}_WILL_BE_${known[field].archived.has(name) ? 'REACTIVATED' : 'CREATED'}`);
+  }
+  return warnings;
 }
 
 /** Variação ≥ 50% sobre um valor anterior > 0, ou queda a 0. */
@@ -358,18 +361,21 @@ async function applyBatch(
   for (let pass = 0; pass < 2 && pending.length; pass++) {
     const existing = await lockExisting(manager, pending.map((r) => r.key));
     const creates: ApplyRow[] = [];
-    const updates: { row: ApplyRow; product: ExistingProduct; action: 'update' | 'reactivate' }[] = [];
+    const updates: { row: ApplyRow; product: ExistingProduct; action: 'update' | 'reactivate'; changed: string[] }[] = [];
     for (const row of pending) {
       const product = existing.get(row.key);
-      const { action } = plan(row.values, product, { ...ctx, priceThresholdPercent: null });
+      const { action, diff } = plan(row.values, product, { ...ctx, priceThresholdPercent: null });
       if (action === 'create') creates.push(row);
-      else if (action === 'update' || action === 'reactivate') updates.push({ row, product: product!, action });
+      else if (action === 'update' || action === 'reactivate') {
+        updates.push({ row, product: product!, action, changed: Object.keys(diff ?? {}) });
+      }
       else results.set(row.rowId, { rowId: row.rowId, entityId: product?.id ?? null, appliedAction: 'unchanged', before: null, updatedAt: null });
     }
 
     const ids = await resolveTaxonomyIds(manager, [
       ...creates.map((row) => ({ row, fields: ctx.mappedFields })),
-      ...updates.map(({ row }) => ({ row, fields: updateDefs.map((d) => d.field) })),
+      // Só o que muda: uma marca arquivada que o produto já usa e a planilha repete não é reativada.
+      ...updates.map(({ row, changed }) => ({ row, fields: updateDefs.map((d) => d.field).filter((f) => changed.includes(f)) })),
     ]);
 
     if (updates.length) {
@@ -675,7 +681,8 @@ export const productsImportHandler: ImportResourceHandler<ExistingProduct> = {
       label: 'Validade (dias)',
       required: false,
       updatable: true,
-      synonyms: ['validade', 'validade dias', 'validade (dias)', 'dias validade', 'prazo validade'],
+      // "Validade" sozinha fica de fora: nas planilhas de varejo costuma ser a DATA do lote, não os dias.
+      synonyms: ['validade dias', 'validade (dias)', 'validade em dias', 'dias validade', 'dias de validade', 'prazo validade'],
       normalize: parseShelfLifeDays,
     },
   ],
@@ -684,11 +691,22 @@ export const productsImportHandler: ImportResourceHandler<ExistingProduct> = {
 
   /** Nomes de categoria (caminho), marca e fornecedor que já existem — o resto aparece como "será criado". */
   async prepareBatch(manager: EntityManager): Promise<KnownTaxonomies> {
-    const lower = (rows: { name: string }[]) => new Set(rows.map((r) => r.name.toLowerCase()));
+    const split = (rows: { name: string; isActive: boolean }[]) => ({
+      active: new Set(rows.filter((r) => r.isActive).map((r) => r.name.toLowerCase())),
+      archived: new Set(rows.filter((r) => !r.isActive).map((r) => r.name.toLowerCase())),
+    });
+    // Caminho de categoria: arquivado se a própria categoria ou qualquer ancestral estiver arquivado.
+    const paths = await categoryPathMap(manager);
+    const categories: { id: string; parentId: string | null; isActive: boolean }[] = await manager.query(
+      `SELECT id, "parentId", "isActive" FROM categories`,
+    );
+    const byId = new Map(categories.map((c) => [c.id, c]));
+    const pathActive = (id: string | null, depth = 0): boolean =>
+      !id || depth > 5 ? true : (byId.get(id)?.isActive ?? true) && pathActive(byId.get(id)?.parentId ?? null, depth + 1);
     return {
-      category: new Set([...(await categoryPathMap(manager)).values()].map((p) => p.toLowerCase())),
-      brand: lower(await manager.query(`SELECT name FROM brands`)),
-      supplier: lower(await manager.query(`SELECT name FROM suppliers`)),
+      category: split(categories.map((c) => ({ name: paths.get(c.id) ?? '', isActive: pathActive(c.id) }))),
+      brand: split(await manager.query(`SELECT name, "isActive" FROM brands`)),
+      supplier: split(await manager.query(`SELECT name, "isActive" FROM suppliers`)),
     };
   },
 

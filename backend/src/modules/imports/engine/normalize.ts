@@ -138,10 +138,13 @@ export function normalizeName(text: string | null): NormalizeResult<string | nul
 const MAX_CATEGORY_LEVELS = 3;
 const MAX_CATEGORY_NAME_LENGTH = 80;
 
-/** "Mercearia > Bebidas" ou "Mercearia/Bebidas" ⇒ ['Mercearia', 'Bebidas'] (SP4 4.1). */
+/**
+ * "Mercearia > Bebidas" ⇒ ['Mercearia', 'Bebidas'] (SP4 4.1). Só ">" separa níveis — é o que a exportação grava;
+ * "/" faz parte do nome ("Frios/Laticínios" é comum no varejo e precisa voltar igual na reimportação).
+ */
 export function normalizeCategoryPath(text: string | null): NormalizeResult<string[] | null> {
   const parts = unprotectFormula((text ?? '').trim())
-    .split(/[>/]/)
+    .split('>')
     .map((part) => part.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
   if (parts.length === 0) return ok(null);
@@ -189,6 +192,9 @@ export function parseBooleanPt(text: string | null): NormalizeResult<boolean | n
 export function parseShelfLifeDays(text: string | null): NormalizeResult<number | null> {
   const original = (text ?? '').trim();
   if (!original) return ok(null);
+  if (/^\d{1,4}[/.-]\d{1,2}[/.-]\d{1,4}$/.test(original)) {
+    return fail(null, `A coluna de validade parece ter datas ("${original}"); aqui vai a validade em dias.`);
+  }
   const match = /^(\d+)(\s*dias?)?$/i.exec(original);
   const days = match ? Number(match[1]) : NaN;
   if (!Number.isInteger(days) || days < 1) return fail(null, `Validade inválida: "${original}". Use o número de dias.`);
