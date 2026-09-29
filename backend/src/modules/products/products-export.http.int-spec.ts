@@ -54,13 +54,29 @@ describe('GET /products/export (SP3, 3.3)', () => {
     expect(status).toBe(200);
     expect(headers.get('content-disposition')).toMatch(/^attachment; filename="produtos-\d{4}-\d{2}-\d{2}\.xlsx"$/);
     const sheet = await sheetOf(body);
-    expect(sheet.getRow(1).values).toEqual([undefined, 'Código de barras', 'Nome', 'SKU', 'Preço de venda', 'Custo', 'Situação']);
+    expect(sheet.getRow(1).values).toEqual([
+      undefined,
+      'Código de barras',
+      'Nome',
+      'SKU',
+      'Preço de venda',
+      'Custo',
+      'Categoria',
+      'Marca',
+      'Fornecedor',
+      'Unidade',
+      'Perecível',
+      'Validade (dias)',
+      'Situação',
+    ]);
     const rows = sheet.getSheetValues().slice(2) as ExcelJS.CellValue[][];
     const arroz = rows.find((row) => row[2] === 'Arroz')!;
     expect(arroz[1]).toBe('0789123');
     expect(arroz[4]).toBe(12.5);
     expect(arroz[5]).toBe(8);
-    expect(arroz[6]).toBe('Ativo');
+    expect(arroz[9]).toBe('UN');
+    expect(arroz[10]).toBe('Não');
+    expect(arroz[12]).toBe('Ativo');
     expect(rows.find((row) => row[1] === '78912345678901')![2]).toBe('\'=HYPERLINK("x")');
     const row = rows.indexOf(arroz) + 2;
     expect(sheet.getCell(row, 1).numFmt).toBe('@');
@@ -77,7 +93,7 @@ describe('GET /products/export (SP3, 3.3)', () => {
     expect(names(await sheetOf((await download('')).body)).sort()).toEqual(['Arroz', 'Feijão']);
     const onlyArchived = await sheetOf((await download('?status=archived')).body);
     expect(names(onlyArchived)).toEqual(['Arroz velho']);
-    expect((onlyArchived.getSheetValues()[2] as ExcelJS.CellValue[])[6]).toBe('Arquivado');
+    expect((onlyArchived.getSheetValues()[2] as ExcelJS.CellValue[])[12]).toBe('Arquivado');
     expect(names(await sheetOf((await download('?status=all&q=arr')).body)).sort()).toEqual(['Arroz', 'Arroz velho']);
   });
 
@@ -88,7 +104,8 @@ describe('GET /products/export (SP3, 3.3)', () => {
     expect(headers.get('content-type')).toBe('text/csv; charset=utf-8');
     expect(headers.get('content-disposition')).toMatch(/filename="produtos-\d{4}-\d{2}-\d{2}\.csv"/);
     expect(body.toString('utf8')).toBe(
-      '﻿Código de barras;Nome;SKU;Preço de venda;Custo;Situação\r\n0789;"Arroz; tipo 1";;12,50;0,00;Ativo\r\n',
+      '﻿Código de barras;Nome;SKU;Preço de venda;Custo;Categoria;Marca;Fornecedor;Unidade;Perecível;Validade (dias);Situação\r\n' +
+        '0789;"Arroz; tipo 1";;12,50;0,00;;;;UN;Não;;Ativo\r\n',
     );
   });
 
@@ -121,6 +138,12 @@ describe('GET /products/export (SP3, 3.3)', () => {
       sku: 'SKU',
       unitPrice: 'Preço de venda',
       costPrice: 'Custo',
+      category: 'Categoria',
+      brand: 'Marca',
+      supplier: 'Fornecedor',
+      unit: 'Unidade',
+      isPerishable: 'Perecível',
+      shelfLifeDays: 'Validade (dias)',
     });
     expect(uploaded.sample[0][0]).toBe('0789123');
   });

@@ -62,11 +62,35 @@ describe('Histórico, modelo e limpeza de importações (SP3)', () => {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(buffer as any);
     const sheet = workbook.worksheets[0];
-    expect((sheet.getRow(1).values as unknown[]).slice(1)).toEqual(['Código de barras', 'Nome', 'SKU', 'Preço de venda', 'Custo']);
+    expect((sheet.getRow(1).values as unknown[]).slice(1)).toEqual([
+      'Código de barras',
+      'Nome',
+      'SKU',
+      'Preço de venda',
+      'Custo',
+      'Categoria',
+      'Marca',
+      'Fornecedor',
+      'Unidade',
+      'Perecível',
+      'Validade (dias)',
+    ]);
     expect(sheet.getColumn(1).numFmt).toBe('@');
 
     const { body } = await uploadFile(baseUrl, token, buffer, 'modelo.xlsx');
-    expect(Object.keys(body.suggestedMapping).sort()).toEqual(['barcode', 'costPrice', 'name', 'sku', 'unitPrice']);
+    expect(Object.keys(body.suggestedMapping).sort()).toEqual([
+      'barcode',
+      'brand',
+      'category',
+      'costPrice',
+      'isPerishable',
+      'name',
+      'shelfLifeDays',
+      'sku',
+      'supplier',
+      'unit',
+      'unitPrice',
+    ]);
   });
 
   it('limpeza: linhas de preparação com mais de 30 dias somem; job parado há mais de 7 dias é cancelado', async () => {
