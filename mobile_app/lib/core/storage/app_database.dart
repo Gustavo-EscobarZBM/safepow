@@ -12,7 +12,7 @@ class AppDatabase {
 
   /// Versão do esquema local. Toda mudança entra em `_migrations` — SEMPRE aditiva: nunca apagar a tabela
   /// `losses` (fila offline de perdas ainda não enviadas — RK5). Sem onDowngrade destrutivo.
-  static const int currentVersion = 2;
+  static const int currentVersion = 3;
 
   /// Metadado com o cursor do sync de produtos (o X-Sync-Cursor do servidor; em servidor antigo, o relógio
   /// do aparelho).
@@ -23,6 +23,13 @@ class AppDatabase {
     // v2 (SP1, R6): apaga o cursor do catálogo para forçar UM re-sync total na primeira abertura depois de
     // atualizar — remove os "fantasmas" (produtos arquivados antes da correção que ficaram no aparelho, F3).
     2: (db) => db.delete('sync_metadata', where: 'key = ?', whereArgs: [productsSyncCursorKey]),
+    // v3 (SP4 4.1): unidade, foto e perecível no catálogo local; re-sync total para baixar os campos novos.
+    3: (db) async {
+      await db.execute("ALTER TABLE products ADD COLUMN unit TEXT NOT NULL DEFAULT 'UN'");
+      await db.execute('ALTER TABLE products ADD COLUMN imageUrl TEXT');
+      await db.execute('ALTER TABLE products ADD COLUMN isPerishable INTEGER NOT NULL DEFAULT 0');
+      await db.delete('sync_metadata', where: 'key = ?', whereArgs: [productsSyncCursorKey]);
+    },
   };
 
   static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -69,7 +76,10 @@ class AppDatabase {
         barcode TEXT NOT NULL,
         sku TEXT,
         name TEXT NOT NULL,
-        unitPrice REAL NOT NULL
+        unitPrice REAL NOT NULL,
+        unit TEXT NOT NULL DEFAULT 'UN',
+        imageUrl TEXT,
+        isPerishable INTEGER NOT NULL DEFAULT 0
       )
     ''');
     await db.execute('CREATE UNIQUE INDEX idx_products_barcode ON products(barcode)');

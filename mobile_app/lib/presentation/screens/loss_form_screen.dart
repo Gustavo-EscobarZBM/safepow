@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../app_services.dart';
+import '../../core/util/loss_quantity.dart';
 import '../../data/models/auth_session.dart';
 import '../../data/models/loss_location.dart';
 import '../../data/models/loss_reason.dart';
@@ -74,7 +75,7 @@ class _LossFormScreenState extends State<LossFormScreen> {
     await AppServices.lossRepository.registerLossLocally(
       productId: widget.product.id,
       productName: widget.product.name,
-      quantity: double.tryParse(_quantityController.text.replaceAll(',', '.')) ?? 1,
+      quantity: parseLossQuantity(_quantityController.text) ?? 1,
       locationId: location.id,
       locationName: location.name,
       reasonId: reason.id,
@@ -148,7 +149,7 @@ class _LossFormScreenState extends State<LossFormScreen> {
                   children: [
                     Card(
                       child: ListTile(
-                        leading: const Icon(Icons.inventory_2_outlined),
+                        leading: _ProductThumbnail(imageUrl: widget.product.imageUrl),
                         title: Text(widget.product.name),
                         subtitle: Text('Código: ${widget.product.barcode}'),
                       ),
@@ -157,13 +158,12 @@ class _LossFormScreenState extends State<LossFormScreen> {
                     TextFormField(
                       controller: _quantityController,
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      decoration:
-                          const InputDecoration(labelText: 'Quantidade', border: OutlineInputBorder()),
-                      validator: (value) {
-                        final parsed = double.tryParse((value ?? '').replaceAll(',', '.'));
-                        if (parsed == null || parsed <= 0) return 'Informe uma quantidade válida';
-                        return null;
-                      },
+                      decoration: InputDecoration(
+                        labelText: 'Quantidade',
+                        suffixText: widget.product.unit.toLowerCase(),
+                        border: const OutlineInputBorder(),
+                      ),
+                      validator: (value) => validateLossQuantity(value, fractional: widget.product.isFractional),
                     ),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
@@ -227,6 +227,30 @@ class _LossFormScreenState extends State<LossFormScreen> {
                 ),
               ),
             ),
+    );
+  }
+}
+
+/// Foto do produto (SP4 4.1) para o funcionário confirmar que escaneou o item certo. Sem foto ou sem internet,
+/// mostra o ícone de antes.
+class _ProductThumbnail extends StatelessWidget {
+  final String? imageUrl;
+  const _ProductThumbnail({this.imageUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    const fallback = Icon(Icons.inventory_2_outlined);
+    final url = imageUrl;
+    if (url == null || url.isEmpty) return fallback;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(6),
+      child: Image.network(
+        url,
+        width: 48,
+        height: 48,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => fallback,
+      ),
     );
   }
 }
