@@ -25,7 +25,7 @@ export class ProductPriceHistory {
   @Column({ type: 'numeric', precision: 12, scale: 2, insert: false, update: false })
   unitPrice: number;
 
-  @Column({ type: 'numeric', precision: 12, scale: 2, insert: false, update: false })
+  @Column({ type: 'numeric', precision: 12, scale: 4, insert: false, update: false })
   costPrice: number;
 
   @Column({ type: 'timestamptz', insert: false, update: false })

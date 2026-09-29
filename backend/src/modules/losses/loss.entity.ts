@@ -116,7 +116,7 @@ export class Loss {
   @Column({ type: 'numeric', precision: 12, scale: 2 })
   unitPriceAtLoss: number;
 
-  @Column({ type: 'numeric', precision: 12, scale: 2 })
+  @Column({ type: 'numeric', precision: 12, scale: 4 })
   unitCostAtLoss: number;
 
   @Column({ type: 'varchar', length: 20, default: 'snapshot' })
