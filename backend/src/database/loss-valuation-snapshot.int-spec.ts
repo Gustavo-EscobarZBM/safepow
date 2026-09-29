@@ -61,7 +61,7 @@ describe('losses — valor congelado: trigger de segurança e restrições', () 
       `SELECT "unitPriceAtLoss", "unitCostAtLoss", "valuationSource" FROM losses WHERE id = $1`,
       [lossId],
     );
-    expect(loss).toMatchObject({ unitPriceAtLoss: '25.00', unitCostAtLoss: '15.00', valuationSource: 'fallback_current' });
+    expect(loss).toMatchObject({ unitPriceAtLoss: '25.00', unitCostAtLoss: '15.0000', valuationSource: 'fallback_current' });
   });
 
   it('perda inserida COM valor congelado explícito não é sobrescrita pelo trigger', async () => {
@@ -86,7 +86,7 @@ describe('losses — valor congelado: trigger de segurança e restrições', () 
       `SELECT "unitPriceAtLoss", "unitCostAtLoss", "valuationSource" FROM losses WHERE id = $1`,
       [lossId],
     );
-    expect(loss).toMatchObject({ unitPriceAtLoss: '999.99', unitCostAtLoss: '888.88', valuationSource: 'snapshot' });
+    expect(loss).toMatchObject({ unitPriceAtLoss: '999.99', unitCostAtLoss: '888.8800', valuationSource: 'snapshot' });
   });
 
   it('perda inserida FORA de contexto de tenant é rejeitada (não grava valor zerado)', async () => {
@@ -166,6 +166,6 @@ describe('losses — backfill do valor congelado (banco próprio, migração em 
       `SELECT "unitPriceAtLoss", "unitCostAtLoss", "valuationSource" FROM losses WHERE id = $1`,
       [lossId],
     );
-    expect(loss).toMatchObject({ unitPriceAtLoss: '50.00', unitCostAtLoss: '30.00', valuationSource: 'backfill_current' });
+    expect(loss).toMatchObject({ unitPriceAtLoss: '50.00', unitCostAtLoss: '30.0000', valuationSource: 'backfill_current' });
   });
 });

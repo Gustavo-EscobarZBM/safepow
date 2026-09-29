@@ -31,7 +31,7 @@ describe('product_price_history — trigger em products e RLS', () => {
     const rows = await historyRows(productId);
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ unitPrice: '10.00', costPrice: '6.00', source: 'manual' });
+    expect(rows[0]).toMatchObject({ unitPrice: '10.00', costPrice: '6.0000', source: 'manual' });
   });
 
   it('mudar o preço ou o custo gera outra linha', async () => {
