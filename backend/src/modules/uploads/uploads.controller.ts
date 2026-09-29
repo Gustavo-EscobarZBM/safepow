@@ -8,10 +8,12 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { Roles, RolesGuard } from '../../common/guards/roles.guard';
+import { UserRole } from '../users/user.entity';
 import { SubscriptionGuard } from '../../common/guards/subscription.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtPayload } from '../../common/tenant/tenant-context.middleware';
-import { StorageService } from './storage.service';
+import { StorageFolder, StorageService } from './storage.service';
 
 const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024; // 8MB
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -30,6 +32,19 @@ export class UploadsController {
     @UploadedFile() file: Express.Multer.File,
     @CurrentUser() user: JwtPayload,
   ) {
+    return this.storeImage(file, user, 'losses');
+  }
+
+  // Foto do produto (SP4 4.1): só o gerente cadastra produto. O painel já reduz a imagem antes de enviar.
+  @Post('product-image')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.MANAGER)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE_BYTES } }))
+  async uploadProductImage(@UploadedFile() file: Express.Multer.File, @CurrentUser() user: JwtPayload) {
+    return this.storeImage(file, user, 'products');
+  }
+
+  private async storeImage(file: Express.Multer.File, user: JwtPayload, folder: StorageFolder): Promise<{ url: string }> {
     if (!file) {
       throw new BadRequestException('Nenhum arquivo enviado (campo "file").');
     }
@@ -39,15 +54,13 @@ export class UploadsController {
     if (!user.companyId) {
       throw new BadRequestException('Usuário sem empresa associada não pode enviar imagens.');
     }
-
     const { url } = await this.storageService.uploadBuffer({
       companyId: user.companyId,
-      folder: 'losses',
+      folder,
       buffer: file.buffer,
       contentType: file.mimetype,
       originalName: file.originalname,
     });
-
     return { url };
   }
 }
