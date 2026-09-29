@@ -18,8 +18,13 @@ export interface ResourceField {
   name: string;
   label: string;
   required?: boolean;
-  type?: 'text' | 'number';
+  type?: 'text' | 'number' | 'email' | 'select';
+  /** Só para `select`; o valor '' é a opção "vazia". */
+  options?: { value: string; label: string }[];
 }
+
+export const SELECT_CLASS =
+  'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
 interface ResourceFormDialogProps {
   open: boolean;
@@ -92,13 +97,28 @@ export function ResourceFormDialog({
           {fields.map((field) => (
             <div key={field.name} className="space-y-1.5">
               <Label htmlFor={`resource-field-${field.name}`}>{field.label}</Label>
-              <Input
-                id={`resource-field-${field.name}`}
-                type={field.type ?? 'text'}
-                required={field.required}
-                value={values[field.name] ?? ''}
-                onChange={(e) => setValues({ ...values, [field.name]: e.target.value })}
-              />
+              {field.type === 'select' ? (
+                <select
+                  id={`resource-field-${field.name}`}
+                  className={SELECT_CLASS}
+                  value={values[field.name] ?? ''}
+                  onChange={(e) => setValues({ ...values, [field.name]: e.target.value })}
+                >
+                  {(field.options ?? []).map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  id={`resource-field-${field.name}`}
+                  type={field.type ?? 'text'}
+                  required={field.required}
+                  value={values[field.name] ?? ''}
+                  onChange={(e) => setValues({ ...values, [field.name]: e.target.value })}
+                />
+              )}
             </div>
           ))}
           {error && <p className="text-sm text-destructive">{error}</p>}

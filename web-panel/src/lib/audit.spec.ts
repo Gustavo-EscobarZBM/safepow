@@ -23,6 +23,19 @@ function entry(overrides: Partial<AuditLogEntry>): AuditLogEntry {
   };
 }
 
+describe('rótulos da auditoria — catálogo (SP4 4.1)', () => {
+  it('campos novos do produto em português; ids de categoria/marca/fornecedor viram "alterado"', () => {
+    expect(fieldLabel('unit')).toBe('Unidade');
+    expect(fieldLabel('isPerishable')).toBe('Perecível');
+    expect(fieldLabel('shelfLifeDays')).toBe('Validade (dias)');
+    expect(fieldLabel('notes')).toBe('Observações');
+    expect(describeChange({ field: 'categoryId', from: null, to: '4f1c-uuid' }, 'update')).toBe('Categoria: alterado');
+    expect(describeChange({ field: 'brandId', from: 'a', to: 'b' }, 'update')).toBe('Marca: alterado');
+    expect(describeChange({ field: 'supplierId', from: 'a', to: 'b' }, 'update')).toBe('Fornecedor: alterado');
+    expect(describeChange({ field: 'parentId', from: 'a', to: 'b' }, 'update')).toBe('Categoria pai: alterado');
+  });
+});
+
 describe('rótulos da auditoria', () => {
   it('traduz campos conhecidos e deixa o nome cru para campo desconhecido', () => {
     expect(fieldLabel('unitPrice')).toBe('Preço unitário');

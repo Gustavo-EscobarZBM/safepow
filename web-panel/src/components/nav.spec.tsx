@@ -100,4 +100,17 @@ describe('Nav', () => {
     await userEvent.click(screen.getByRole('button', { name: /Cadastros/ }));
     expect(screen.getByRole('link', { name: 'Importações' })).toHaveAttribute('href', '/cadastros/importacoes');
   });
+
+  it('gerente vê Categorias, Marcas e Fornecedores logo depois de Produtos (SP4 4.1)', async () => {
+    render(<Nav user={{ id: '1', name: 'Ana', role: 'manager', companyId: 'c1' }} />);
+    await userEvent.click(screen.getByRole('button', { name: /Cadastros/ }));
+    const links = screen.getAllByRole('link').map((l) => l.getAttribute('href'));
+    const start = links.indexOf('/cadastros/produtos');
+    expect(links.slice(start, start + 4)).toEqual([
+      '/cadastros/produtos',
+      '/cadastros/categorias',
+      '/cadastros/marcas',
+      '/cadastros/fornecedores',
+    ]);
+  });
 });

@@ -16,6 +16,9 @@ export const ENTITY_LABELS: Record<string, string> = {
   import_job: 'Importação',
   session: 'Acesso',
   change_request: 'Solicitação',
+  category: 'Categoria',
+  brand: 'Marca',
+  supplier: 'Fornecedor',
 };
 
 export const ACTION_LABELS: Record<string, string> = {
@@ -90,6 +93,19 @@ export const FIELD_LABELS: Record<string, string> = {
   year: 'Ano',
   month: 'Mês',
   revenueAmount: 'Faturamento',
+  // Catálogo (SP4 4.1).
+  categoryId: 'Categoria',
+  brandId: 'Marca',
+  supplierId: 'Fornecedor',
+  parentId: 'Categoria pai',
+  unit: 'Unidade',
+  isPerishable: 'Perecível',
+  shelfLifeDays: 'Validade (dias)',
+  notes: 'Observações',
+  reviewStatus: 'Revisão do cadastro',
+  taxId: 'CNPJ/CPF',
+  contactName: 'Contato',
+  phone: 'Telefone',
 };
 
 const MONEY_FIELDS = new Set(['unitPrice', 'costPrice', 'unitPriceAtLoss', 'unitCostAtLoss', 'revenueAmount']);
@@ -104,6 +120,10 @@ const REFERENCE_FIELDS = new Set([
   'lossVerifierId',
   'clientGeneratedId',
   'imageUrl',
+  'categoryId',
+  'brandId',
+  'supplierId',
+  'parentId',
 ]);
 
 export function fieldLabel(field: string): string {

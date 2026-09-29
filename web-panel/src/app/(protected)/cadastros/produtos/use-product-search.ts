@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '@/lib/api-client';
-import { PRODUCT_PAGE_SIZE, productSearchPath, SEARCH_DEBOUNCE_MS } from '@/lib/product-search';
+import { PRODUCT_PAGE_SIZE, productSearchPath, SEARCH_DEBOUNCE_MS, type ProductCatalogFilters } from '@/lib/product-search';
 import type { ProductSearchResult, ProductStatusFilter } from '@/lib/types';
 
 /**
@@ -15,6 +15,7 @@ export function useProductSearch() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [status, setStatusValue] = useState<ProductStatusFilter>('active');
   const [page, setPage] = useState(1);
+  const [filters, setFiltersValue] = useState<ProductCatalogFilters>({});
   const [reloadKey, setReloadKey] = useState(0);
   const [result, setResult] = useState<ProductSearchResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -31,7 +32,7 @@ export function useProductSearch() {
     setLoading(true);
     api
       .get<ProductSearchResult>(
-        productSearchPath({ q: debouncedSearch, status, page, pageSize: PRODUCT_PAGE_SIZE }),
+        productSearchPath({ q: debouncedSearch, status, page, pageSize: PRODUCT_PAGE_SIZE, filters }),
       )
       .then((data) => {
         if (latestRequest.current !== requestId) return;
@@ -45,7 +46,7 @@ export function useProductSearch() {
       .finally(() => {
         if (latestRequest.current === requestId) setLoading(false);
       });
-  }, [debouncedSearch, status, page, reloadKey]);
+  }, [debouncedSearch, status, page, filters, reloadKey]);
 
   const total = result?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PRODUCT_PAGE_SIZE));
@@ -67,6 +68,12 @@ export function useProductSearch() {
     setPage(1);
   }, []);
 
+  /** Filtros de catálogo (SP4 4.1): trocar um volta para a página 1. */
+  const setFilter = useCallback((key: keyof ProductCatalogFilters, value: string) => {
+    setFiltersValue((current) => ({ ...current, [key]: value || undefined }));
+    setPage(1);
+  }, []);
+
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
 
   return {
@@ -74,6 +81,8 @@ export function useProductSearch() {
     setSearch,
     status,
     setStatus,
+    filters,
+    setFilter,
     page,
     setPage,
     items: result?.items ?? [],

@@ -121,12 +121,15 @@ export class ImportSimulator {
         const prepared = pending.map((row) => this.prepare(row, columns, handler, seen));
         const keys = prepared.filter((p) => p.action === null).map((p) => p.key!);
         const existing = await handler.loadExisting(m, keys);
+        const batch = handler.prepareBatch
+          ? await handler.prepareBatch(m, prepared.filter((p) => p.action === null).map((p) => p.values))
+          : undefined;
         const entities = prepared.map((p) => {
           let action: RowAction = p.action ?? 'unchanged';
           let diff: ImportRow['diff'] = null;
           const warnings = [...p.warnings];
           if (p.action === null) {
-            const plan = handler.plan(p.values, existing.get(p.key!), ctx);
+            const plan = handler.plan(p.values, existing.get(p.key!), { ...ctx, batch });
             action = plan.action;
             diff = plan.diff;
             warnings.push(...plan.warnings);

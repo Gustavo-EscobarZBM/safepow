@@ -9,17 +9,17 @@ const byReason = [
 
 describe('LossesBreakdownChart', () => {
   it('shows the empty state when there is no data for the selected view', () => {
-    render(<LossesBreakdownChart byReason={[]} byLocation={[]} view="reason" />);
+    render(<LossesBreakdownChart rows={[]} />);
     expect(screen.getByText('Nenhuma perda registrada no período selecionado.')).toBeInTheDocument();
   });
 
   it('shows the total of the selected breakdown in the center label', () => {
-    render(<LossesBreakdownChart byReason={byReason} byLocation={[]} view="reason" />);
+    render(<LossesBreakdownChart rows={byReason} />);
     expect(screen.getByTestId('breakdown-total')).toHaveTextContent('100,00');
   });
 
   it('lists every entry label in the legend', () => {
-    render(<LossesBreakdownChart byReason={byReason} byLocation={[]} view="reason" />);
+    render(<LossesBreakdownChart rows={byReason} />);
     expect(screen.getByText('Vencimento')).toBeInTheDocument();
     expect(screen.getByText('Quebra')).toBeInTheDocument();
   });

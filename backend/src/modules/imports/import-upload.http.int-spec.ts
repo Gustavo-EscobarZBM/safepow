@@ -64,7 +64,7 @@ describe('POST /imports — upload com prévia (SP3, 3.1.1)', () => {
     });
     expect(body.matchedMapping).toBeNull();
     expect(body.duplicateOf).toBeNull();
-    expect(body.fields).toHaveLength(5);
+    expect(body.fields).toHaveLength(11);
     expect(storage.files.get(body.job.storageKey)?.equals(buffer)).toBe(true);
   });
 
@@ -173,7 +173,7 @@ describe('POST /imports — upload com prévia (SP3, 3.1.1)', () => {
     const { status, body } = await http(baseUrl, 'POST', `/api/imports/${uploaded.job.id}/preview`, token, { sheetName: 'Aba2' });
     expect(status).toBe(201);
     expect(body).toMatchObject({ headers: ['EAN', 'Nome'], sample: [['1', 'X']], suggestedMapping: { barcode: 'EAN', name: 'Nome' } });
-    expect(body.fields).toHaveLength(5);
+    expect(body.fields).toHaveLength(11);
     expect(body.fields[0]).toEqual(expect.objectContaining({ key: expect.any(String), label: expect.any(String) }));
     const [job] = await adminQuery(`SELECT "sheetName", headers FROM import_jobs WHERE id = $1`, [uploaded.job.id]);
     expect(job).toEqual({ sheetName: 'Aba2', headers: ['EAN', 'Nome'] });

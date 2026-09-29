@@ -4,7 +4,16 @@ import { FormEvent, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Archive, ArchiveRestore, FileSpreadsheet, Pencil, Search } from 'lucide-react';
 import { api, ApiError } from '@/lib/api-client';
-import type { PriceHistoryEntry, Product, ProductStatusFilter } from '@/lib/types';
+import { PRODUCT_UNITS, type PriceHistoryEntry, type Product, type ProductStatusFilter } from '@/lib/types';
+import {
+  EMPTY_PRODUCT_FORM,
+  ProductFormFields,
+  productFormFromProduct,
+  productPayload,
+  type ProductFormValues,
+} from '@/components/products/product-form-fields';
+import { useCatalogTaxonomies } from '@/components/products/use-catalog-taxonomies';
+import { SELECT_CLASS } from '@/components/resources/resource-form-dialog';
 import { PriceHistoryTimeline } from '@/components/price-history-timeline';
 import { HistoryDrawer } from '@/components/history-drawer';
 import { useApprovalFlow } from '@/hooks/use-approval-flow';
@@ -18,7 +27,6 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useProductSearch } from './use-product-search';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
@@ -43,17 +51,15 @@ export default function ProductsPage() {
   const [archivedConflictId, setArchivedConflictId] = useState<string | null>(null);
   const [restoringConflict, setRestoringConflict] = useState(false);
 
-  const [barcode, setBarcode] = useState('');
-  const [name, setName] = useState('');
-  const [unitPrice, setUnitPrice] = useState('');
-  const [costPrice, setCostPrice] = useState('');
+  const taxonomies = useCatalogTaxonomies();
+  const [form, setForm] = useState<ProductFormValues>(EMPTY_PRODUCT_FORM);
 
   const [productToEdit, setProductToEdit] = useState<Product | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   // Correção retroativa de preço (SP2, 2.3).
   const [retroFixOpen, setRetroFixOpen] = useState(false);
   const [retroFixNotice, setRetroFixNotice] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ barcode: '', name: '', unitPrice: '', costPrice: '' });
+  const [editForm, setEditForm] = useState<ProductFormValues>(EMPTY_PRODUCT_FORM);
   const [editError, setEditError] = useState<string | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [priceHistory, setPriceHistory] = useState<{
@@ -74,16 +80,8 @@ export default function ProductsPage() {
     setFormError(null);
     setArchivedConflictId(null);
     try {
-      await api.post('products', {
-        barcode,
-        name,
-        unitPrice: unitPrice ? Number(unitPrice) : undefined,
-        costPrice: costPrice ? Number(costPrice) : undefined,
-      });
-      setBarcode('');
-      setName('');
-      setUnitPrice('');
-      setCostPrice('');
+      await api.post('products', productPayload(form));
+      setForm(EMPTY_PRODUCT_FORM);
       productSearch.reload();
     } catch (e) {
       setFormError(e instanceof ApiError ? e.message : 'Erro ao cadastrar produto.');
@@ -103,18 +101,10 @@ export default function ProductsPage() {
     try {
       await api.patch(`products/${archivedConflictId}/restore`);
       restored = true;
-      await api.patch(`products/${archivedConflictId}`, {
-        barcode,
-        name,
-        unitPrice: unitPrice ? Number(unitPrice) : undefined,
-        costPrice: costPrice ? Number(costPrice) : undefined,
-      });
+      await api.patch(`products/${archivedConflictId}`, productPayload(form));
       setArchivedConflictId(null);
       setFormError(null);
-      setBarcode('');
-      setName('');
-      setUnitPrice('');
-      setCostPrice('');
+      setForm(EMPTY_PRODUCT_FORM);
     } catch (e) {
       const detail = e instanceof ApiError ? e.message : 'Erro inesperado.';
       setFormError(
@@ -151,12 +141,7 @@ export default function ProductsPage() {
     approval.clearNotice();
     setRetroFixNotice(null);
     setProductToEdit(product);
-    setEditForm({
-      barcode: product.barcode,
-      name: product.name,
-      unitPrice: String(product.unitPrice ?? ''),
-      costPrice: String(product.costPrice ?? ''),
-    });
+    setEditForm(productFormFromProduct(product));
     setEditError(null);
     void loadPriceHistory(product.id);
   }
@@ -171,10 +156,7 @@ export default function ProductsPage() {
       await approval.execute(
         (justification) =>
           api.patch(`products/${productId}`, {
-            barcode: editForm.barcode,
-            name: editForm.name,
-            unitPrice: editForm.unitPrice ? Number(editForm.unitPrice) : undefined,
-            costPrice: editForm.costPrice ? Number(editForm.costPrice) : undefined,
+            ...productPayload(editForm),
             ...(justification ? { justification } : {}),
           }),
         () => {
@@ -256,7 +238,7 @@ export default function ProductsPage() {
           <ExportButton
             path="products/export"
             fileBase="produtos"
-            params={{ status: productSearch.status, q: productSearch.search.trim() || undefined }}
+            params={{ status: productSearch.status, q: productSearch.search.trim() || undefined, ...productSearch.filters }}
           />
         </div>
       </div>
@@ -264,42 +246,14 @@ export default function ProductsPage() {
       <Card>
         <CardContent className="pt-4">
           <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-4">
-            <div className="space-y-1.5">
-              <Label>Código de barras</Label>
-              <Input
-                required
-                value={barcode}
-                onChange={(e) => {
-                  setBarcode(e.target.value);
-                  // A oferta de reativar é daquele código: mudou o código, ela deixa de valer.
-                  setArchivedConflictId(null);
-                }}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Nome</Label>
-              <Input required value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Preço unitário (R$)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                value={unitPrice}
-                onChange={(e) => setUnitPrice(e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Preço de custo (R$)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                value={costPrice}
-                onChange={(e) => setCostPrice(e.target.value)}
-              />
-            </div>
+            <ProductFormFields
+              idPrefix="novo"
+              values={form}
+              taxonomies={taxonomies}
+              onChange={setForm}
+              // A oferta de reativar é daquele código: mudou o código, ela deixa de valer.
+              onBarcodeChange={() => setArchivedConflictId(null)}
+            />
 
             {formError && (
               <div className="space-y-2 sm:col-span-4">
@@ -347,12 +301,40 @@ export default function ProductsPage() {
         </div>
       </div>
 
+      <div className="flex flex-wrap gap-2">
+        {[
+          { key: 'categoryId' as const, label: 'categoria', empty: 'Todas as categorias', options: taxonomies.categories.map((c) => ({ value: c.id, label: c.path })) },
+          { key: 'brandId' as const, label: 'marca', empty: 'Todas as marcas', options: taxonomies.brands.map((b) => ({ value: b.id, label: b.name })) },
+          { key: 'supplierId' as const, label: 'fornecedor', empty: 'Todos os fornecedores', options: taxonomies.suppliers.map((f) => ({ value: f.id, label: f.name })) },
+          { key: 'unit' as const, label: 'unidade', empty: 'Todas as unidades', options: PRODUCT_UNITS.map((u) => ({ value: u, label: u })) },
+        ].map((filter) => (
+          <select
+            key={filter.key}
+            aria-label={`Filtrar por ${filter.label}`}
+            className={`${SELECT_CLASS} w-auto min-w-44`}
+            value={productSearch.filters[filter.key] ?? ''}
+            onChange={(e) => productSearch.setFilter(filter.key, e.target.value)}
+          >
+            <option value="">{filter.empty}</option>
+            {filter.options
+              .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
+              .map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+          </select>
+        ))}
+      </div>
+
       <Card className="overflow-hidden py-0">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Nome</TableHead>
               <TableHead>Código de barras</TableHead>
+              <TableHead>Categoria</TableHead>
+              <TableHead>Unidade</TableHead>
               <TableHead>Preço unitário</TableHead>
               <TableHead>Preço de custo</TableHead>
               <TableHead className="pr-6 text-right">Ações</TableHead>
@@ -361,13 +343,13 @@ export default function ProductsPage() {
           <TableBody>
             {productSearch.loading && productSearch.items.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
                   Carregando...
                 </TableCell>
               </TableRow>
             ) : productSearch.items.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="py-6 text-center text-muted-foreground">
                   {productSearch.search.trim()
                     ? 'Nenhum produto encontrado para essa busca.'
                     : productSearch.status === 'archived'
@@ -380,11 +362,17 @@ export default function ProductsPage() {
                 <TableRow key={product.id}>
                   <TableCell className="font-medium">
                     <span className="flex flex-wrap items-center gap-2">
+                      {product.imageUrl && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={product.imageUrl} alt="" className="size-8 rounded object-cover" />
+                      )}
                       {product.name}
                       {!product.isActive && <Badge variant="secondary">Arquivado</Badge>}
                     </span>
                   </TableCell>
                   <TableCell className="font-mono text-xs">{product.barcode}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{product.categoryPath ?? '—'}</TableCell>
+                  <TableCell className="text-sm">{product.unit ?? 'UN'}</TableCell>
                   <TableCell>
                     {Number(product.unitPrice).toLocaleString('pt-BR', {
                       style: 'currency',
@@ -455,42 +443,7 @@ export default function ProductsPage() {
           </DialogHeader>
           <form onSubmit={handleEditSubmit} className="space-y-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>Código de barras</Label>
-                <Input
-                  required
-                  value={editForm.barcode}
-                  onChange={(e) => setEditForm({ ...editForm, barcode: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Nome</Label>
-                <Input
-                  required
-                  value={editForm.name}
-                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Preço unitário (R$)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={editForm.unitPrice}
-                  onChange={(e) => setEditForm({ ...editForm, unitPrice: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Preço de custo (R$)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={editForm.costPrice}
-                  onChange={(e) => setEditForm({ ...editForm, costPrice: e.target.value })}
-                />
-              </div>
+              <ProductFormFields idPrefix="editar" values={editForm} taxonomies={taxonomies} onChange={setEditForm} />
             </div>
             <PriceHistoryTimeline {...priceHistory} />
             <Button type="button" variant="outline" size="sm" onClick={() => setHistoryOpen(true)}>

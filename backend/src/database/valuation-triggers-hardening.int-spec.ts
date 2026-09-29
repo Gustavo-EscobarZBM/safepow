@@ -66,7 +66,7 @@ describe('endurecimento dos triggers de valor (migration 1700000013000)', () => 
       `SELECT "unitPriceAtLoss", "unitCostAtLoss", "valuationSource" FROM losses WHERE id = $1`,
       [lossId],
     );
-    expect(loss).toMatchObject({ unitPriceAtLoss: '99.99', unitCostAtLoss: '15.00', valuationSource: 'fallback_current' });
+    expect(loss).toMatchObject({ unitPriceAtLoss: '99.99', unitCostAtLoss: '15.0000', valuationSource: 'fallback_current' });
   });
 
   it('as duas funções de trigger têm search_path fixo (não dependem de quem as chama)', async () => {

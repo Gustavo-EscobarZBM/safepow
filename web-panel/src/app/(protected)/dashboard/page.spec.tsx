@@ -34,6 +34,9 @@ function mockHappyPath() {
     if (path.startsWith('losses/reports/by-period')) return [];
     if (path.startsWith('losses/reports/by-reason')) return [];
     if (path.startsWith('losses/reports/by-location')) return [];
+    if (path.startsWith('losses/reports/by-category'))
+      return [{ id: null, label: 'Sem categoria', totalQuantity: '2', totalFinancialLoss: '20' }];
+    if (path.startsWith('losses/reports/by-supplier')) return [];
     throw new Error(`unexpected path: ${path}`);
   });
 }
@@ -120,5 +123,14 @@ describe('DashboardPage', () => {
       },
       { timeout: 2000 },
     );
+  });
+
+  it('composição por categoria (SP4 4.1): a aba busca by-category no nível raiz e mostra as fatias', async () => {
+    mockHappyPath();
+    render(<DashboardPage />);
+    await userEvent.click(await screen.findByRole('tab', { name: 'Por categoria' }));
+    expect(await screen.findByText('Sem categoria')).toBeInTheDocument();
+    expect((api.get as ReturnType<typeof vi.fn>).mock.calls.some(([p]) => String(p).startsWith('losses/reports/by-category?level=root'))).toBe(true);
+    expect(screen.getByRole('tab', { name: 'Por fornecedor' })).toBeInTheDocument();
   });
 });

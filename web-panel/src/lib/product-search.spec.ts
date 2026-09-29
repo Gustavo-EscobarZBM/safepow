@@ -1,6 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { productSearchPath } from './product-search';
 
+describe('productSearchPath — filtros de catálogo (SP4 4.1)', () => {
+  it('manda só os filtros preenchidos', () => {
+    const path = productSearchPath({
+      q: '',
+      status: 'active',
+      page: 1,
+      pageSize: 20,
+      filters: { categoryId: 'c1', brandId: '', supplierId: undefined, unit: 'KG' },
+    });
+    expect(path).toBe('products/search?status=active&page=1&pageSize=20&categoryId=c1&unit=KG');
+  });
+});
+
 describe('productSearchPath', () => {
   it('sem busca: não manda q', () => {
     expect(productSearchPath({ q: '', status: 'active', page: 1, pageSize: 20 })).toBe(

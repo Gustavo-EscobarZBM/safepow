@@ -1,6 +1,6 @@
 import { Brackets, SelectQueryBuilder } from 'typeorm';
 import type { ProductStatusFilter } from './dto/search-products.dto';
-import { Product } from './product.entity';
+import { Product, ProductUnit } from './product.entity';
 
 export const DEFAULT_PAGE_SIZE = 20;
 export const MAX_PAGE_SIZE = 100;
@@ -30,10 +30,33 @@ export function escapeLikePattern(text: string): string {
  * Filtros da busca do painel (F10), compartilhados com a exportação (SP3, 3.3) para exportar exatamente o que a tela
  * mostra: status (padrão `active`) e texto — nome por conteúdo, código de barras e SKU por prefixo, curingas escapados.
  */
-export function applyProductFilters(
-  qb: SelectQueryBuilder<Product>,
-  filters: { q?: string; status?: ProductStatusFilter },
-): void {
+export interface ProductFilters {
+  q?: string;
+  status?: ProductStatusFilter;
+  /** Inclui as subcategorias (SP4 4.1). */
+  categoryId?: string;
+  brandId?: string;
+  supplierId?: string;
+  unit?: ProductUnit;
+}
+
+export function applyProductFilters(qb: SelectQueryBuilder<Product>, filters: ProductFilters): void {
+  if (filters.categoryId) {
+    qb.andWhere(
+      `product.categoryId IN (
+         WITH RECURSIVE tree AS (
+           SELECT id FROM categories WHERE id = :categoryId
+           UNION ALL
+           SELECT c.id FROM categories c JOIN tree ON c."parentId" = tree.id
+         )
+         SELECT id FROM tree)`,
+      { categoryId: filters.categoryId },
+    );
+  }
+  if (filters.brandId) qb.andWhere('product.brandId = :brandId', { brandId: filters.brandId });
+  if (filters.supplierId) qb.andWhere('product.supplierId = :supplierId', { supplierId: filters.supplierId });
+  if (filters.unit) qb.andWhere('product.unit = :unit', { unit: filters.unit });
+
   const status = filters.status ?? 'active';
   if (status !== 'all') {
     qb.andWhere('product.isActive = :isActive', { isActive: status === 'active' });

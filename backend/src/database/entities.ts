@@ -11,6 +11,9 @@ import { Product } from '../modules/products/product.entity';
 import { User } from '../modules/users/user.entity';
 import { AuditLog } from '../modules/audit/audit-log.entity';
 import { ChangeRequest } from '../modules/approvals/change-request.entity';
+import { Brand } from '../modules/catalog/brand.entity';
+import { Category } from '../modules/catalog/category.entity';
+import { Supplier } from '../modules/catalog/supplier.entity';
 
 /**
  * Única lista de entidades do TypeORM, importada por app.module.ts (conexão de runtime),
@@ -33,4 +36,7 @@ export const ENTITIES = [
   ChangeRequest,
   ImportRow,
   ImportMapping,
+  Category,
+  Brand,
+  Supplier,
 ];

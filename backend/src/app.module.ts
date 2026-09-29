@@ -8,6 +8,7 @@ import { ApprovalsModule } from './modules/approvals/approvals.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { CatalogModule } from './modules/catalog/catalog.module';
 import { ENTITIES } from './database/entities';
 import { CompaniesModule } from './modules/companies/companies.module';
 import { ImportsModule } from './modules/imports/imports.module';
@@ -70,6 +71,7 @@ import { UsersModule } from './modules/users/users.module';
     AuthModule,
     CompaniesModule,
     ProductsModule,
+    CatalogModule,
     LossReasonsModule,
     LossLocationsModule,
     LossesModule,

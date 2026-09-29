@@ -122,3 +122,12 @@ describe('RetroFixDialog', () => {
     expect(screen.getByRole('button', { name: 'Aplicar correção' })).toBeDisabled();
   });
 });
+
+describe('RetroFixDialog — custo com 4 casas (SP4 4.1)', () => {
+  it('o campo de custo aceita 4 casas (senão o navegador recusa enviar o custo atual de 3,1234)', () => {
+    render(<RetroFixDialog product={{ ...PRODUCT, costPrice: '3.1234' }} open onOpenChange={() => {}} onApplied={vi.fn()} />);
+    const cost = screen.getByLabelText('Custo (R$)');
+    expect(cost).toHaveAttribute('step', '0.0001');
+    expect(cost).toHaveValue(3.1234);
+  });
+});

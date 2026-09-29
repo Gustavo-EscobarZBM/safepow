@@ -1,12 +1,23 @@
 import { EntityManager } from 'typeorm';
 import { priceChangeExceeds } from '../../approvals/approval-policies';
-import { normalizeBarcode, normalizeName, normalizeSku, parseMoney } from '../engine/normalize';
+import { CATEGORY_PATH_SEPARATOR, categoryPathMap } from '../../catalog/categories.service';
+import {
+  normalizeBarcode,
+  normalizeCategoryPath,
+  normalizeName,
+  normalizeSku,
+  normalizeUnit,
+  parseBooleanPt,
+  parseMoney,
+  parseShelfLifeDays,
+} from '../engine/normalize';
 import {
   AppliedRow,
   ApplyRow,
   ArchivedRecord,
   ImportResourceHandler,
   MissingPage,
+  NormalizeResult,
   PlanContext,
   RollbackPreview,
   RowPlan,
@@ -23,16 +34,73 @@ export interface ExistingProduct {
   costPrice: number;
   isActive: boolean;
   updatedAt: Date;
+  // Dados de catálogo (SP4 4.1); os rótulos servem ao diff (o usuário vê nomes, não ids).
+  categoryId?: string | null;
+  brandId?: string | null;
+  supplierId?: string | null;
+  unit?: string;
+  isPerishable?: boolean;
+  shelfLifeDays?: number | null;
+  categoryPath?: string | null;
+  brandName?: string | null;
+  supplierName?: string | null;
 }
 
 const PRICE_FIELDS = ['unitPrice', 'costPrice'] as const;
 const PRICE_JUMP_PERCENT = 50;
 
+/** Campo da planilha ⇒ rótulo atual do produto (taxonomias: comparadas por nome, sem diferenciar maiúsculas). */
+const TAXONOMY_LABELS = { category: 'categoryPath', brand: 'brandName', supplier: 'supplierName' } as const;
+type TaxonomyField = keyof typeof TAXONOMY_LABELS;
+const isTaxonomy = (field: string): field is TaxonomyField => field in TAXONOMY_LABELS;
+
+/**
+ * Nomes (minúsculos) que já existem na empresa, separados em ativos e arquivados: o que faltar será criado na
+ * gravação, e o arquivado que a linha vai gravar é reativado — as duas coisas aparecem como aviso na simulação.
+ */
+type KnownTaxonomies = Record<TaxonomyField, { active: Set<string>; archived: Set<string> }>;
+
+/** Nome de marca/fornecedor: espaços normalizados, sem a proteção de fórmula da exportação, com limite de tamanho. */
+function normalizeTaxonomyName(maxLength: number, label: string) {
+  return (text: string | null): NormalizeResult<string | null> => {
+    const name = normalizeName(text).value;
+    if (!text?.trim() || !name) return { value: null, errors: [], warnings: [] };
+    if (name.length > maxLength) return { value: null, errors: [`${label} com mais de ${maxLength} caracteres.`], warnings: [] };
+    return { value: name, errors: [], warnings: [] };
+  };
+}
+
 const toCents = (value: number) => Math.round(value * 100);
+const toUnits = (field: string, value: unknown) => Math.round(Number(value) * (field === 'costPrice' ? 10000 : 100));
 
 function sameValue(field: string, a: unknown, b: unknown): boolean {
-  if ((PRICE_FIELDS as readonly string[]).includes(field)) return toCents(Number(a)) === toCents(Number(b));
+  if ((PRICE_FIELDS as readonly string[]).includes(field)) return toUnits(field, a) === toUnits(field, b);
+  if (isTaxonomy(field)) return String(a ?? '').toLowerCase() === String(b ?? '').toLowerCase();
   return (a ?? null) === (b ?? null);
+}
+
+/** Valor como aparece no diff: o caminho da categoria vira "Mercearia > Bebidas". */
+function shown(field: string, value: unknown): unknown {
+  if (field === 'category' && Array.isArray(value)) return value.join(CATEGORY_PATH_SEPARATOR);
+  return value;
+}
+
+function currentOf(field: string, existing: ExistingProduct): unknown {
+  if (isTaxonomy(field)) return existing[TAXONOMY_LABELS[field]] ?? null;
+  return existing[field as keyof ExistingProduct] ?? null;
+}
+
+const TAXONOMY_WARNING_PREFIX: Record<TaxonomyField, string> = { category: 'CATEGORY', brand: 'BRAND', supplier: 'SUPPLIER' };
+
+function taxonomyWarnings(diff: Record<string, { from: unknown; to: unknown }>, known: KnownTaxonomies | undefined): string[] {
+  if (!known) return [];
+  const warnings: string[] = [];
+  for (const field of Object.keys(TAXONOMY_WARNING_PREFIX) as TaxonomyField[]) {
+    const name = diff[field]?.to ? String(diff[field].to).toLowerCase() : null;
+    if (!name || known[field].active.has(name)) continue;
+    warnings.push(`${TAXONOMY_WARNING_PREFIX[field]}_WILL_BE_${known[field].archived.has(name) ? 'REACTIVATED' : 'CREATED'}`);
+  }
+  return warnings;
 }
 
 /** Variação ≥ 50% sobre um valor anterior > 0, ou queda a 0. */
@@ -51,11 +119,12 @@ function plan(values: Record<string, unknown>, existing: ExistingProduct | undef
     const diff: Record<string, { from: unknown; to: unknown }> = {};
     for (const field of mapped) {
       const value = values[field] ?? null;
-      diff[field] = { from: null, to: (PRICE_FIELDS as readonly string[]).includes(field) ? (value ?? 0) : value };
+      diff[field] = { from: null, to: (PRICE_FIELDS as readonly string[]).includes(field) ? (value ?? 0) : shown(field, value) };
     }
     const price = Number(diff.unitPrice?.to ?? 0);
     const cost = Number(diff.costPrice?.to ?? 0);
     if (price > 0 && cost > price) warnings.push('COST_ABOVE_PRICE');
+    warnings.push(...taxonomyWarnings(diff, ctx.batch as KnownTaxonomies | undefined));
     return { action: 'create', diff, warnings, sensitivePrice: false };
   }
 
@@ -65,9 +134,11 @@ function plan(values: Record<string, unknown>, existing: ExistingProduct | undef
     const next = values[field];
     // Célula vazia = "não informado": nunca apaga o valor que o produto já tem.
     if (next === null || next === undefined) continue;
-    const current = existing[field as keyof ExistingProduct];
-    if (!sameValue(field, current, next)) diff[field] = { from: current, to: next };
+    const current = currentOf(field, existing);
+    const target = shown(field, next);
+    if (!sameValue(field, current, target)) diff[field] = { from: current, to: target };
   }
+  warnings.push(...taxonomyWarnings(diff, ctx.batch as KnownTaxonomies | undefined));
 
   for (const field of PRICE_FIELDS) {
     const change = diff[field];
@@ -111,19 +182,34 @@ const MISSING_FROM = `
    AND p."createdAt" <= COALESCE((SELECT j."simulatedAt" FROM import_jobs j WHERE j.id = $1), now())
    AND NOT EXISTS (SELECT 1 FROM import_rows r WHERE r."jobId" = $1 AND r.key = p.barcode)`;
 
-/** Colunas que a importação pode escrever (whitelist: os nomes entram no SQL). */
-const WRITABLE_COLUMNS = ['name', 'sku', 'unitPrice', 'costPrice'] as const;
+/** Colunas do produto lidas pela importação (alias `p`); os nomes de marca/fornecedor vêm por subconsulta (FOR UPDATE OF p). */
+const EXISTING_COLUMNS = `p.id, p.barcode, p.name, p.sku, p."unitPrice", p."costPrice", p."isActive", p."updatedAt",
+  p."categoryId", p."brandId", p."supplierId", p.unit, p."isPerishable", p."shelfLifeDays",
+  (SELECT b.name FROM brands b WHERE b.id = p."brandId") AS "brandName",
+  (SELECT s.name FROM suppliers s WHERE s.id = p."supplierId") AS "supplierName"`;
 
-async function lockExisting(manager: EntityManager, keys: string[]): Promise<Map<string, ExistingProduct>> {
-  if (keys.length === 0) return new Map();
-  const rows: ExistingProduct[] = await manager.query(
-    `SELECT id, barcode, name, sku, "unitPrice", "costPrice", "isActive", "updatedAt"
-       FROM products WHERE barcode = ANY($1) FOR UPDATE`,
-    [keys],
-  );
-  return new Map(rows.map((row) => [row.barcode, { ...row, unitPrice: Number(row.unitPrice), costPrice: Number(row.costPrice) }]));
+async function hydrate(manager: EntityManager, rows: ExistingProduct[]): Promise<ExistingProduct[]> {
+  const paths = rows.some((r) => r.categoryId) ? await categoryPathMap(manager) : new Map<string, string>();
+  return rows.map((row) => ({
+    ...row,
+    unitPrice: Number(row.unitPrice),
+    costPrice: Number(row.costPrice),
+    categoryPath: row.categoryId ? (paths.get(row.categoryId) ?? null) : null,
+  }));
 }
 
+async function selectExisting(manager: EntityManager, keys: string[], lock: boolean): Promise<Map<string, ExistingProduct>> {
+  if (keys.length === 0) return new Map();
+  const rows: ExistingProduct[] = await manager.query(
+    `SELECT ${EXISTING_COLUMNS} FROM products p WHERE p.barcode = ANY($1) ${lock ? 'FOR UPDATE OF p' : ''}`,
+    [keys],
+  );
+  return new Map((await hydrate(manager, rows)).map((row) => [row.barcode, row]));
+}
+
+const lockExisting = (manager: EntityManager, keys: string[]) => selectExisting(manager, keys, true);
+
+/** O "antes" guardado para a reversão (3.4). Os campos de catálogo entram desde o SP4 4.1 (jobs antigos não os têm). */
 function beforeOf(product: ExistingProduct): Record<string, unknown> {
   return {
     name: product.name,
@@ -131,8 +217,120 @@ function beforeOf(product: ExistingProduct): Record<string, unknown> {
     unitPrice: product.unitPrice,
     costPrice: product.costPrice,
     isActive: product.isActive,
+    categoryId: product.categoryId ?? null,
+    brandId: product.brandId ?? null,
+    supplierId: product.supplierId ?? null,
+    unit: product.unit ?? 'UN',
+    isPerishable: product.isPerishable ?? false,
+    shelfLifeDays: product.shelfLifeDays ?? null,
     updatedAt: new Date(product.updatedAt).toISOString(),
   };
+}
+
+type ResolvedIds = Map<string, Partial<Record<TaxonomyField, string>>>;
+
+/** Colunas que a importação pode escrever (whitelist: os nomes entram no SQL), com o tipo do unnest. */
+interface ColumnDef {
+  field: string;
+  column: string;
+  sqlType: 'text' | 'numeric' | 'uuid' | 'boolean' | 'int';
+  value(row: ApplyRow, ids: ResolvedIds): unknown;
+  /** Valor na criação quando a planilha não informa. */
+  insertDefault?: string;
+}
+
+const COLUMN_DEFS: ColumnDef[] = [
+  { field: 'name', column: 'name', sqlType: 'text', value: (r) => asText(r.values.name) },
+  { field: 'sku', column: 'sku', sqlType: 'text', value: (r) => asText(r.values.sku) },
+  { field: 'unitPrice', column: 'unitPrice', sqlType: 'numeric', value: (r) => asMoney(r.values.unitPrice), insertDefault: '0' },
+  { field: 'costPrice', column: 'costPrice', sqlType: 'numeric', value: (r) => asMoney(r.values.costPrice), insertDefault: '0' },
+  { field: 'category', column: 'categoryId', sqlType: 'uuid', value: (r, ids) => ids.get(r.rowId)?.category ?? null },
+  { field: 'brand', column: 'brandId', sqlType: 'uuid', value: (r, ids) => ids.get(r.rowId)?.brand ?? null },
+  { field: 'supplier', column: 'supplierId', sqlType: 'uuid', value: (r, ids) => ids.get(r.rowId)?.supplier ?? null },
+  { field: 'unit', column: 'unit', sqlType: 'text', value: (r) => asText(r.values.unit), insertDefault: `'UN'` },
+  { field: 'isPerishable', column: 'isPerishable', sqlType: 'boolean', value: (r) => r.values.isPerishable ?? null, insertDefault: 'false' },
+  { field: 'shelfLifeDays', column: 'shelfLifeDays', sqlType: 'int', value: (r) => r.values.shelfLifeDays ?? null },
+];
+
+const CURRENT_COMPANY = `NULLIF(current_setting('app.current_company_id', true), '')::uuid`;
+
+/** Marcas/fornecedores por nome sem caixa: cria os que faltam e reativa os arquivados. Devolve nome minúsculo ⇒ id. */
+async function resolveNamed(manager: EntityManager, table: 'brands' | 'suppliers', names: string[]): Promise<Map<string, string>> {
+  const byLower = new Map<string, string>();
+  for (const name of names) if (!byLower.has(name.toLowerCase())) byLower.set(name.toLowerCase(), name);
+  if (byLower.size === 0) return new Map();
+  await manager.query(
+    `INSERT INTO ${table} ("companyId", name) SELECT ${CURRENT_COMPANY}, n FROM unnest($1::text[]) AS n ON CONFLICT DO NOTHING`,
+    [[...byLower.values()]],
+  );
+  const rows: { id: string; name: string; isActive: boolean }[] = await manager.query(
+    `SELECT id, name, "isActive" FROM ${table} WHERE lower(name) = ANY($1)`,
+    [[...byLower.keys()]],
+  );
+  const archived = rows.filter((r) => !r.isActive).map((r) => r.id);
+  if (archived.length) {
+    await manager.query(`UPDATE ${table} SET "isActive" = true, "updatedAt" = now() WHERE id = ANY($1)`, [archived]);
+  }
+  return new Map(rows.map((r) => [r.name.toLowerCase(), r.id]));
+}
+
+/** Caminhos de categoria: cada nível é procurado (sem caixa) sob o pai, criado se faltar e reativado se arquivado. */
+async function resolveCategoryPaths(manager: EntityManager, paths: string[][]): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  const node = new Map<string, string>();
+  for (const path of paths) {
+    const pathKey = path.join(CATEGORY_PATH_SEPARATOR).toLowerCase();
+    if (result.has(pathKey)) continue;
+    let parentId: string | null = null;
+    for (const name of path) {
+      const key = `${parentId ?? ''}|${name.toLowerCase()}`;
+      let id = node.get(key);
+      if (!id) {
+        const find = async () =>
+          (
+            (await manager.query(
+              `SELECT id, "isActive" FROM categories WHERE lower(name) = lower($1) AND "parentId" IS NOT DISTINCT FROM $2::uuid`,
+              [name, parentId],
+            )) as { id: string; isActive: boolean }[]
+          )[0];
+        let found = await find();
+        if (!found) {
+          await manager.query(
+            `INSERT INTO categories ("companyId", name, "parentId") VALUES (${CURRENT_COMPANY}, $1, $2) ON CONFLICT DO NOTHING`,
+            [name, parentId],
+          );
+          found = await find();
+        }
+        if (!found.isActive) {
+          await manager.query(`UPDATE categories SET "isActive" = true, "updatedAt" = now() WHERE id = $1`, [found.id]);
+        }
+        id = found.id;
+        node.set(key, id);
+      }
+      parentId = id;
+    }
+    result.set(pathKey, parentId!);
+  }
+  return result;
+}
+
+/** Troca os nomes de categoria/marca/fornecedor pelos ids, só nos campos que cada linha vai gravar. */
+async function resolveTaxonomyIds(manager: EntityManager, targets: { row: ApplyRow; fields: string[] }[]): Promise<ResolvedIds> {
+  const wanted = (field: TaxonomyField) => targets.filter((t) => t.fields.includes(field) && t.row.values[field] != null);
+  const categories = await resolveCategoryPaths(manager, wanted('category').map((t) => t.row.values.category as string[]));
+  const brands = await resolveNamed(manager, 'brands', wanted('brand').map((t) => String(t.row.values.brand)));
+  const suppliers = await resolveNamed(manager, 'suppliers', wanted('supplier').map((t) => String(t.row.values.supplier)));
+
+  const ids: ResolvedIds = new Map();
+  const set = (rowId: string, field: TaxonomyField, id: string | undefined) => {
+    if (id) ids.set(rowId, { ...ids.get(rowId), [field]: id });
+  };
+  for (const t of wanted('category')) {
+    set(t.row.rowId, 'category', categories.get((t.row.values.category as string[]).join(CATEGORY_PATH_SEPARATOR).toLowerCase()));
+  }
+  for (const t of wanted('brand')) set(t.row.rowId, 'brand', brands.get(String(t.row.values.brand).toLowerCase()));
+  for (const t of wanted('supplier')) set(t.row.rowId, 'supplier', suppliers.get(String(t.row.values.supplier).toLowerCase()));
+  return ids;
 }
 
 /** No TypeORM, UPDATE … RETURNING via manager.query devolve [linhas, contagem]; INSERT devolve só as linhas. */
@@ -155,35 +353,40 @@ async function applyBatch(
   ctx: { mappedFields: string[]; updateFields: string[] },
 ): Promise<AppliedRow[]> {
   const results = new Map<string, AppliedRow>();
-  const columns = WRITABLE_COLUMNS.filter((c) => ctx.updateFields.includes(c) && ctx.mappedFields.includes(c));
+  const updateDefs = COLUMN_DEFS.filter((d) => ctx.updateFields.includes(d.field) && ctx.mappedFields.includes(d.field));
+  const unnestTypes = (first: 'uuid' | 'text') =>
+    [`$1::${first}[]`, ...COLUMN_DEFS.map((d, i) => `$${i + 2}::${d.sqlType}[]`)].join(', ');
+  const unnestNames = COLUMN_DEFS.map((d) => `"${d.column}"`).join(', ');
   let pending = rows;
   for (let pass = 0; pass < 2 && pending.length; pass++) {
     const existing = await lockExisting(manager, pending.map((r) => r.key));
     const creates: ApplyRow[] = [];
-    const updates: { row: ApplyRow; product: ExistingProduct; action: 'update' | 'reactivate' }[] = [];
+    const updates: { row: ApplyRow; product: ExistingProduct; action: 'update' | 'reactivate'; changed: string[] }[] = [];
     for (const row of pending) {
       const product = existing.get(row.key);
-      const { action } = plan(row.values, product, { ...ctx, priceThresholdPercent: null });
+      const { action, diff } = plan(row.values, product, { ...ctx, priceThresholdPercent: null });
       if (action === 'create') creates.push(row);
-      else if (action === 'update' || action === 'reactivate') updates.push({ row, product: product!, action });
+      else if (action === 'update' || action === 'reactivate') {
+        updates.push({ row, product: product!, action, changed: Object.keys(diff ?? {}) });
+      }
       else results.set(row.rowId, { rowId: row.rowId, entityId: product?.id ?? null, appliedAction: 'unchanged', before: null, updatedAt: null });
     }
 
+    const ids = await resolveTaxonomyIds(manager, [
+      ...creates.map((row) => ({ row, fields: ctx.mappedFields })),
+      // Só o que muda: uma marca arquivada que o produto já usa e a planilha repete não é reativada.
+      ...updates.map(({ row, changed }) => ({ row, fields: updateDefs.map((d) => d.field).filter((f) => changed.includes(f)) })),
+    ]);
+
     if (updates.length) {
-      const set = columns.map((c) => `"${c}" = COALESCE(v."${c}", p."${c}")`).join(', ');
+      const set = updateDefs.map((d) => `"${d.column}" = COALESCE(v."${d.column}", p."${d.column}")`).join(', ');
       const updated = returned<{ id: string; updatedAt: Date }>(await manager.query(
         `UPDATE products p
             SET ${set ? `${set}, ` : ''}"isActive" = true, "updatedAt" = clock_timestamp()
-           FROM unnest($1::uuid[], $2::text[], $3::text[], $4::numeric[], $5::numeric[]) AS v(id, name, sku, "unitPrice", "costPrice")
+           FROM unnest(${unnestTypes('uuid')}) AS v(id, ${unnestNames})
           WHERE p.id = v.id
           RETURNING p.id, p."updatedAt"`,
-        [
-          updates.map((u) => u.product.id),
-          updates.map((u) => asText(u.row.values.name)),
-          updates.map((u) => asText(u.row.values.sku)),
-          updates.map((u) => asMoney(u.row.values.unitPrice)),
-          updates.map((u) => asMoney(u.row.values.costPrice)),
-        ],
+        [updates.map((u) => u.product.id), ...COLUMN_DEFS.map((d) => updates.map((u) => d.value(u.row, ids)))],
       ));
       const updatedAt = new Map(updated.map((u) => [u.id, u.updatedAt]));
       for (const { row, product, action } of updates) {
@@ -199,20 +402,14 @@ async function applyBatch(
 
     const conflicted: ApplyRow[] = [];
     if (creates.length) {
+      const values = COLUMN_DEFS.map((d) => (d.insertDefault ? `COALESCE(v."${d.column}", ${d.insertDefault})` : `v."${d.column}"`));
       const inserted: { id: string; barcode: string; updatedAt: Date }[] = await manager.query(
-        `INSERT INTO products ("companyId", barcode, name, sku, "unitPrice", "costPrice", "updatedAt")
-         SELECT NULLIF(current_setting('app.current_company_id', true), '')::uuid, v.barcode, v.name, v.sku,
-                COALESCE(v."unitPrice", 0), COALESCE(v."costPrice", 0), clock_timestamp()
-           FROM unnest($1::text[], $2::text[], $3::text[], $4::numeric[], $5::numeric[]) AS v(barcode, name, sku, "unitPrice", "costPrice")
+        `INSERT INTO products ("companyId", barcode, ${unnestNames}, "updatedAt")
+         SELECT ${CURRENT_COMPANY}, v.barcode, ${values.join(', ')}, clock_timestamp()
+           FROM unnest(${unnestTypes('text')}) AS v(barcode, ${unnestNames})
          ON CONFLICT ("companyId", barcode) DO NOTHING
          RETURNING id, barcode, "updatedAt"`,
-        [
-          creates.map((r) => r.key),
-          creates.map((r) => asText(r.values.name)),
-          creates.map((r) => asText(r.values.sku)),
-          creates.map((r) => asMoney(r.values.unitPrice)),
-          creates.map((r) => asMoney(r.values.costPrice)),
-        ],
+        [creates.map((r) => r.key), ...COLUMN_DEFS.map((d) => creates.map((r) => d.value(r, ids)))],
       );
       const byKey = new Map(inserted.map((i) => [i.barcode, i]));
       for (const row of creates) {
@@ -240,11 +437,14 @@ async function applyBatch(
 }
 
 async function archiveMissingBatch(manager: EntityManager, jobId: string, limit: number): Promise<ArchivedRecord[]> {
-  const picked: ExistingProduct[] = await manager.query(
-    `SELECT p.id, p.barcode, p.name, p.sku, p."unitPrice", p."costPrice", p."isActive", p."updatedAt"
-     ${MISSING_FROM}
-     ORDER BY p.id LIMIT $2 FOR UPDATE OF p`,
-    [jobId, limit],
+  const picked = await hydrate(
+    manager,
+    await manager.query(
+      `SELECT ${EXISTING_COLUMNS}
+       ${MISSING_FROM}
+       ORDER BY p.id LIMIT $2 FOR UPDATE OF p`,
+      [jobId, limit],
+    ),
   );
   if (picked.length === 0) return [];
   const archived = returned<{ id: string; updatedAt: Date }>(await manager.query(
@@ -255,7 +455,7 @@ async function archiveMissingBatch(manager: EntityManager, jobId: string, limit:
   return picked.map((p) => ({
     entityId: p.id,
     key: p.barcode,
-    before: beforeOf({ ...p, unitPrice: Number(p.unitPrice), costPrice: Number(p.costPrice) }),
+    before: beforeOf(p),
     updatedAt: updatedAt.get(p.id)!,
   }));
 }
@@ -344,12 +544,17 @@ async function rollbackBatch(manager: EntityManager, jobId: string, limit: numbe
 
   const fields = byAction('update', 'reactivate');
   if (fields.length) {
+    // Campos de catálogo só voltam quando o "antes" os tem (jobs anteriores ao SP4 4.1 não guardavam).
+    const catalog = (column: string) => `"${column}" = CASE WHEN v.has_catalog THEN v."${column}" ELSE p."${column}" END`;
     await manager.query(
       `UPDATE products p
           SET name = v.name, sku = v.sku, "unitPrice" = v."unitPrice", "costPrice" = v."costPrice",
+              ${['categoryId', 'brandId', 'supplierId', 'unit', 'isPerishable', 'shelfLifeDays'].map(catalog).join(', ')},
               "isActive" = COALESCE(v.active, p."isActive"), "updatedAt" = clock_timestamp()
-         FROM unnest($1::uuid[], $2::text[], $3::text[], $4::numeric[], $5::numeric[], $6::boolean[])
-              AS v(id, name, sku, "unitPrice", "costPrice", active)
+         FROM unnest($1::uuid[], $2::text[], $3::text[], $4::numeric[], $5::numeric[], $6::boolean[],
+                     $7::boolean[], $8::uuid[], $9::uuid[], $10::uuid[], $11::text[], $12::boolean[], $13::int[])
+              AS v(id, name, sku, "unitPrice", "costPrice", active,
+                   has_catalog, "categoryId", "brandId", "supplierId", unit, "isPerishable", "shelfLifeDays")
         WHERE p.id = v.id`,
       [
         fields.map((r) => r.productId),
@@ -358,6 +563,13 @@ async function rollbackBatch(manager: EntityManager, jobId: string, limit: numbe
         fields.map((r) => asMoney(r.before?.unitPrice)),
         fields.map((r) => asMoney(r.before?.costPrice)),
         fields.map((r) => (r.appliedAction === 'reactivate' ? false : null)),
+        fields.map((r) => r.before?.unit !== undefined),
+        fields.map((r) => r.before?.categoryId ?? null),
+        fields.map((r) => r.before?.brandId ?? null),
+        fields.map((r) => r.before?.supplierId ?? null),
+        fields.map((r) => r.before?.unit ?? null),
+        fields.map((r) => r.before?.isPerishable ?? null),
+        fields.map((r) => r.before?.shelfLifeDays ?? null),
       ],
     );
   }
@@ -422,20 +634,80 @@ export const productsImportHandler: ImportResourceHandler<ExistingProduct> = {
       required: false,
       updatable: true,
       synonyms: ['custo', 'preco de custo', 'valor de custo', 'vlr custo', 'pcusto', 'custo unitario'],
-      normalize: parseMoney,
+      normalize: (text) => parseMoney(text, { decimals: 4 }),
+    },
+    {
+      key: 'category',
+      label: 'Categoria',
+      required: false,
+      updatable: true,
+      synonyms: ['categoria', 'grupo', 'departamento', 'secao', 'familia'],
+      normalize: normalizeCategoryPath,
+    },
+    {
+      key: 'brand',
+      label: 'Marca',
+      required: false,
+      updatable: true,
+      synonyms: ['marca', 'fabricante'],
+      normalize: normalizeTaxonomyName(80, 'Marca'),
+    },
+    {
+      key: 'supplier',
+      label: 'Fornecedor',
+      required: false,
+      updatable: true,
+      synonyms: ['fornecedor', 'fornec'],
+      normalize: normalizeTaxonomyName(120, 'Fornecedor'),
+    },
+    {
+      key: 'unit',
+      label: 'Unidade',
+      required: false,
+      updatable: true,
+      synonyms: ['unidade', 'un', 'und', 'unid', 'medida'],
+      normalize: normalizeUnit,
+    },
+    {
+      key: 'isPerishable',
+      label: 'Perecível',
+      required: false,
+      updatable: true,
+      synonyms: ['perecivel', 'pereciveis'],
+      normalize: parseBooleanPt,
+    },
+    {
+      key: 'shelfLifeDays',
+      label: 'Validade (dias)',
+      required: false,
+      updatable: true,
+      // "Validade" sozinha fica de fora: nas planilhas de varejo costuma ser a DATA do lote, não os dias.
+      synonyms: ['validade dias', 'validade (dias)', 'validade em dias', 'dias validade', 'dias de validade', 'prazo validade'],
+      normalize: parseShelfLifeDays,
     },
   ],
 
-  async loadExisting(manager: EntityManager, keys: string[]): Promise<Map<string, ExistingProduct>> {
-    if (keys.length === 0) return new Map();
-    const rows: ExistingProduct[] = await manager.query(
-      `SELECT id, barcode, name, sku, "unitPrice", "costPrice", "isActive", "updatedAt"
-         FROM products WHERE barcode = ANY($1)`,
-      [keys],
+  loadExisting: (manager: EntityManager, keys: string[]) => selectExisting(manager, keys, false),
+
+  /** Nomes de categoria (caminho), marca e fornecedor que já existem — o resto aparece como "será criado". */
+  async prepareBatch(manager: EntityManager): Promise<KnownTaxonomies> {
+    const split = (rows: { name: string; isActive: boolean }[]) => ({
+      active: new Set(rows.filter((r) => r.isActive).map((r) => r.name.toLowerCase())),
+      archived: new Set(rows.filter((r) => !r.isActive).map((r) => r.name.toLowerCase())),
+    });
+    // Caminho de categoria: arquivado se a própria categoria ou qualquer ancestral estiver arquivado.
+    const paths = await categoryPathMap(manager);
+    const categories: { id: string; parentId: string | null; isActive: boolean }[] = await manager.query(
+      `SELECT id, "parentId", "isActive" FROM categories`,
     );
-    return new Map(
-      rows.map((row) => [row.barcode, { ...row, unitPrice: Number(row.unitPrice), costPrice: Number(row.costPrice) }]),
-    );
+    const byId = new Map(categories.map((c) => [c.id, c]));
+    const pathActive = (id: string | null, depth = 0): boolean =>
+      !id || depth > 5 ? true : (byId.get(id)?.isActive ?? true) && pathActive(byId.get(id)?.parentId ?? null, depth + 1);
+    return {
+      category: split(categories.map((c) => ({ name: paths.get(c.id) ?? '', isActive: pathActive(c.id) }))),
+      brand: split(await manager.query(`SELECT name, "isActive" FROM brands`)),
+      supplier: split(await manager.query(`SELECT name, "isActive" FROM suppliers`)),
+    };
   },
 
   plan,

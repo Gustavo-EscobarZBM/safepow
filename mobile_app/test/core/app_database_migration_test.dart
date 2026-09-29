@@ -49,7 +49,6 @@ void main() {
     final v2 = await AppDatabase.openAt(path);
 
     expect(await v2.getVersion(), AppDatabase.currentVersion);
-    expect(AppDatabase.currentVersion, 2);
     final losses = await v2.query('losses');
     expect(losses, hasLength(1));
     expect(losses.first['clientGeneratedId'], 'loss-pendente');
@@ -58,6 +57,27 @@ void main() {
     expect(metadata.map((row) => row['key']), isNot(contains('products_last_sync_at')));
     expect(metadata.map((row) => row['key']), contains('cached_company_id'));
     await v2.close();
+  });
+
+  test('v2 → v3 (SP4 4.1): produtos ganham unidade/foto/perecível e o cursor é apagado', () async {
+    final path = '${dir.path}/v2.db';
+    final v2 = await databaseFactoryFfi.openDatabase(
+      path,
+      options: OpenDatabaseOptions(version: 2, onCreate: (db, _) => createV1Schema(db)),
+    );
+    await v2.insert('products', {'id': 'p-1', 'barcode': '111', 'name': 'Arroz', 'unitPrice': 10.0});
+    await v2.insert('sync_metadata', {'key': 'products_last_sync_at', 'value': '2026-09-28T10:00:00.000Z'});
+    await v2.close();
+
+    final v3 = await AppDatabase.openAt(path);
+    expect(await v3.getVersion(), 3);
+    final products = await v3.query('products');
+    expect(products.single['name'], 'Arroz');
+    expect(products.single['unit'], 'UN');
+    expect(products.single['isPerishable'], 0);
+    expect(products.single['imageUrl'], isNull);
+    expect((await v3.query('sync_metadata')).map((row) => row['key']), isNot(contains('products_last_sync_at')));
+    await v3.close();
   });
 
   test('instalação nova já nasce na versão atual, com as tabelas do app', () async {

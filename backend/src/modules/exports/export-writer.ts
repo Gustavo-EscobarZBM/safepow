@@ -14,7 +14,7 @@ const CONTENT_TYPES: Record<ExportFormat, string> = {
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   csv: 'text/csv; charset=utf-8',
 };
-const XLSX_FORMATS: Record<ExportCellType, string> = { text: '@', money: '0.00', datetime: 'dd/mm/yyyy hh:mm' };
+const XLSX_FORMATS: Record<ExportCellType, string> = { text: '@', money: '0.00', cost: '0.00##', datetime: 'dd/mm/yyyy hh:mm' };
 
 function parts(date: Date): Record<string, string> {
   const fmt = new Intl.DateTimeFormat('en-GB', {
@@ -39,6 +39,8 @@ export function exportFileName(fileBase: string, format: ExportFormat, now: Date
 export function formatCsvValue(type: ExportCellType, value: string | number | Date | null): string {
   if (value === null || value === undefined || value === '') return '';
   if (type === 'money') return Number(value).toFixed(2).replace('.', ',');
+  // Custo (SP4 4.1): até 4 casas, sem zeros à direita além das 2 obrigatórias.
+  if (type === 'cost') return Number(value).toFixed(4).replace(/0{1,2}$/, '').replace('.', ',');
   if (type === 'datetime') {
     const p = parts(value instanceof Date ? value : new Date(value));
     return `${p.day}/${p.month}/${p.year} ${p.hour}:${p.minute}`;
@@ -54,7 +56,7 @@ function xlsxDate(value: Date): Date {
 
 function xlsxValue(type: ExportCellType, value: string | number | Date | null): string | number | Date | null {
   if (value === null || value === undefined || value === '') return null;
-  if (type === 'money') return Number(value);
+  if (type === 'money' || type === 'cost') return Number(value);
   if (type === 'datetime') return xlsxDate(value instanceof Date ? value : new Date(value));
   return protectFormula(String(value));
 }

@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { suggestMapping } from '../engine/mapping';
 import { getImportHandler } from './index';
 import { ExistingProduct, productsImportHandler as handler } from './products.import-handler';
 
@@ -24,14 +25,41 @@ const ctx = (over: Partial<{ mappedFields: string[]; updateFields: string[]; pri
 
 describe('productsImportHandler — campos', () => {
   it('chaves, obrigatórios e atualizáveis', () => {
-    expect(handler.fields.map((f) => f.key)).toEqual(['barcode', 'name', 'sku', 'unitPrice', 'costPrice']);
+    expect(handler.fields.map((f) => f.key)).toEqual([
+      'barcode',
+      'name',
+      'sku',
+      'unitPrice',
+      'costPrice',
+      'category',
+      'brand',
+      'supplier',
+      'unit',
+      'isPerishable',
+      'shelfLifeDays',
+    ]);
     expect(handler.fields.filter((f) => f.required).map((f) => f.key)).toEqual(['barcode', 'name']);
     expect(handler.fields.filter((f) => !f.updatable).map((f) => f.key)).toEqual(['barcode']);
     expect(handler.keyField).toBe('barcode');
     expect(handler.resource).toBe('products');
   });
   it('rótulos em português', () => {
-    expect(handler.fields.map((f) => f.label)).toEqual(['Código de barras', 'Nome', 'SKU', 'Preço de venda', 'Custo']);
+    expect(handler.fields.map((f) => f.label)).toEqual([
+      'Código de barras',
+      'Nome',
+      'SKU',
+      'Preço de venda',
+      'Custo',
+      'Categoria',
+      'Marca',
+      'Fornecedor',
+      'Unidade',
+      'Perecível',
+      'Validade (dias)',
+    ]);
+  });
+  it('custo aceita 4 casas', () => {
+    expect(handler.fields.find((f) => f.key === 'costPrice')!.normalize('3,1234').value).toBe(3.1234);
   });
 });
 
@@ -106,5 +134,12 @@ describe('getImportHandler', () => {
   it('desconhecido ⇒ 400', () => {
     expect(() => getImportHandler('users')).toThrow(BadRequestException);
     expect(() => getImportHandler('users')).toThrow('Tipo de importação desconhecido.');
+  });
+});
+
+describe('productsImportHandler — sugestão da validade (SP4 4.1)', () => {
+  it('"Validade" sozinha (costuma ser a data do lote) não é ligada aos dias; "Validade (dias)" é', () => {
+    expect(suggestMapping(['EAN', 'Descrição', 'Validade'], handler.fields).shelfLifeDays).toBeUndefined();
+    expect(suggestMapping(['EAN', 'Descrição', 'Validade (dias)'], handler.fields).shelfLifeDays).toBe('Validade (dias)');
   });
 });

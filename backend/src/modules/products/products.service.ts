@@ -5,6 +5,8 @@ import { GateOptions, PendingApproval, applyApprovalGate, loadCompanyPolicies } 
 import { priceChangeExceeds } from '../approvals/approval-policies';
 import { User } from '../users/user.entity';
 import { CreateProductDto } from './dto/create-product.dto';
+import { PRODUCT_CATALOG_FIELDS, ProductCatalogFieldsDto } from './dto/product-catalog-fields.dto';
+import { assertSelectableTaxonomies, withCatalogLabels } from './products-catalog';
 import { SearchProductsDto } from './dto/search-products.dto';
 import { SyncProductsQueryDto } from './dto/sync-products.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -28,6 +30,15 @@ export interface PriceHistoryEntry {
 }
 
 const PRICE_HISTORY_LIMIT = 100;
+
+/** Só os campos de catálogo (SP4 4.1) que vieram no pedido — `undefined` não mexe, `null` limpa. */
+function catalogChanges(dto: ProductCatalogFieldsDto): Partial<Product> {
+  const picked: Record<string, unknown> = {};
+  for (const field of PRODUCT_CATALOG_FIELDS) {
+    if (dto[field] !== undefined) picked[field] = dto[field];
+  }
+  return picked as Partial<Product>;
+}
 
 export interface SyncPage {
   items: Product[];
@@ -66,6 +77,16 @@ export function productSnapshot(product: Product): Record<string, unknown> {
     unitPrice: String(product.unitPrice),
     costPrice: String(product.costPrice),
     isActive: product.isActive,
+    // Campos de catálogo (SP4 4.1): o painel manda todos no PATCH; sem eles aqui, o pedido de aprovação mostraria
+    // "Unidade: — → UN" como se mudasse.
+    categoryId: product.categoryId ?? null,
+    brandId: product.brandId ?? null,
+    supplierId: product.supplierId ?? null,
+    unit: product.unit,
+    isPerishable: product.isPerishable,
+    shelfLifeDays: product.shelfLifeDays ?? null,
+    imageUrl: product.imageUrl ?? null,
+    notes: product.notes ?? null,
   };
 }
 
@@ -80,7 +101,9 @@ export class ProductsService {
       throw barcodeConflict(existing);
     }
 
+    await assertSelectableTaxonomies(manager, dto);
     const product = manager.create(Product, {
+      ...catalogChanges(dto),
       companyId: companyId!,
       barcode: dto.barcode,
       sku: dto.sku ?? null,
@@ -89,7 +112,8 @@ export class ProductsService {
       costPrice: dto.costPrice ?? 0,
     });
     try {
-      return await manager.save(product);
+      const [view] = await withCatalogLabels(manager, [await manager.save(product)]);
+      return view;
     } catch (error) {
       // Dois cadastros simultâneos do mesmo código: o segundo passa pela checagem acima e esbarra no
       // índice único — responde o mesmo 409 em vez de 500.
@@ -168,7 +192,7 @@ export class ProductsService {
       .take(pageSize);
 
     const [items, total] = await qb.getManyAndCount();
-    return { items, total, page, pageSize };
+    return { items: await withCatalogLabels(manager, items), total, page, pageSize };
   }
 
   async findByBarcode(barcode: string): Promise<Product> {
@@ -201,6 +225,7 @@ export class ProductsService {
     }
 
     const { justification, ...changes } = dto;
+    await assertSelectableTaxonomies(manager, changes, product);
     if (!options.skipPolicy) {
       const policies = await loadCompanyPolicies();
       if (
@@ -226,9 +251,11 @@ export class ProductsService {
     if (changes.sku !== undefined) product.sku = changes.sku || null;
     if (changes.unitPrice !== undefined) product.unitPrice = changes.unitPrice;
     if (changes.costPrice !== undefined) product.costPrice = changes.costPrice;
+    Object.assign(product, catalogChanges(changes));
 
     try {
-      return await manager.save(product);
+      const [view] = await withCatalogLabels(manager, [await manager.save(product)]);
+      return view;
     } catch (error) {
       if (isBarcodeUniqueViolation(error)) throw barcodeConflict(null);
       throw error;

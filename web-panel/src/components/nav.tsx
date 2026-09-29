@@ -40,6 +40,9 @@ const MANAGER_LINKS: NavItem[] = [
     icon: ClipboardList,
     children: [
       { href: '/cadastros/produtos', label: 'Produtos' },
+      { href: '/cadastros/categorias', label: 'Categorias' },
+      { href: '/cadastros/marcas', label: 'Marcas' },
+      { href: '/cadastros/fornecedores', label: 'Fornecedores' },
       { href: '/cadastros/motivos', label: 'Motivo da Perda' },
       { href: '/cadastros/locais', label: 'Local da Perda' },
       { href: '/cadastros/importacoes', label: 'Importações' },

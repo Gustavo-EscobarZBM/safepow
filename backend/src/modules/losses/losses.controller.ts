@@ -20,7 +20,7 @@ import { UserRole } from '../users/user.entity';
 import { JustificationDto } from '../approvals/dto/justification.dto';
 import { isPendingApproval } from '../approvals/approval-gate';
 import { CreateLossDto } from './dto/create-loss.dto';
-import { QueryLossesDto } from './dto/query-losses.dto';
+import { QueryLossesByCategoryDto, QueryLossesDto } from './dto/query-losses.dto';
 import { UpdateLossDto } from './dto/update-loss.dto';
 import { LossesService } from './losses.service';
 
@@ -97,6 +97,19 @@ export class LossesController {
   @Roles(UserRole.MANAGER)
   reportByLocation(@Query() query: QueryLossesDto) {
     return this.lossesService.reportByLocation(query);
+  }
+
+  // Composição por categoria e por fornecedor (SP4 4.1) — novas visões do gráfico de rosca.
+  @Get('reports/by-category')
+  @Roles(UserRole.MANAGER)
+  reportByCategory(@Query() query: QueryLossesByCategoryDto) {
+    return this.lossesService.reportByCategory(query);
+  }
+
+  @Get('reports/by-supplier')
+  @Roles(UserRole.MANAGER)
+  reportBySupplier(@Query() query: QueryLossesDto) {
+    return this.lossesService.reportBySupplier(query);
   }
 
   // Card "Alertas e recomendações" do dashboard — regras fixas em losses-alerts.ts.

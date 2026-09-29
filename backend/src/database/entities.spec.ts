@@ -4,9 +4,9 @@ import { dataSourceOptions } from './data-source';
 import { ENTITIES } from './entities';
 
 describe('módulo único de entidades (ENTITIES)', () => {
-  it('tem exatamente as 13 entidades registradas hoje, sem duplicatas', () => {
-    expect(ENTITIES).toHaveLength(13);
-    expect(new Set(ENTITIES).size).toBe(13);
+  it('tem exatamente as 16 entidades registradas hoje, sem duplicatas', () => {
+    expect(ENTITIES).toHaveLength(16);
+    expect(new Set(ENTITIES).size).toBe(16);
   });
 
   it('data-source.ts usa a MESMA referência de ENTITIES (não uma cópia)', () => {

@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 
+export type StorageFolder = 'losses' | 'imports' | 'products';
+
 /**
  * Cliente de object storage compatível com S3 (Seção 2.3 do documento):
  * funciona com AWS S3, DigitalOcean Spaces, Cloudflare R2 ou MinIO (dev
@@ -41,7 +43,7 @@ export class StorageService {
    */
   async uploadBuffer(params: {
     companyId: string;
-    folder: 'losses' | 'imports';
+    folder: StorageFolder;
     buffer: Buffer;
     contentType: string;
     originalName: string;

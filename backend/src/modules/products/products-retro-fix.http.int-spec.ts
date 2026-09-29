@@ -80,10 +80,10 @@ describe('Correção retroativa de preço (SP2, 2.3)', () => {
     expect(status).toBe(200);
     expect(impact).toEqual({ affectedLosses: 2, currentTotal: 6, newTotal: 60, currentCostTotal: 4, newCostTotal: 40 });
     for (const id of [insideA, insideB]) {
-      expect(await lossRow(id)).toEqual({ unitPriceAtLoss: '12.00', unitCostAtLoss: '8.00', valuationSource: 'recalculated' });
+      expect(await lossRow(id)).toEqual({ unitPriceAtLoss: '12.00', unitCostAtLoss: '8.0000', valuationSource: 'recalculated' });
     }
     for (const id of [before, otherProductLoss]) {
-      expect(await lossRow(id)).toEqual({ unitPriceAtLoss: '1.20', unitCostAtLoss: '0.80', valuationSource: 'snapshot' });
+      expect(await lossRow(id)).toEqual({ unitPriceAtLoss: '1.20', unitCostAtLoss: '0.8000', valuationSource: 'snapshot' });
     }
 
     const events = await adminQuery(`SELECT action, "entityType", "entityId", reason, summary FROM audit_log ORDER BY seq OFFSET $1`, [

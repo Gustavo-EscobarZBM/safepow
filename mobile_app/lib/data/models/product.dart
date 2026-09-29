@@ -5,6 +5,14 @@ class Product {
   final String name;
   final double unitPrice;
 
+  /// Unidade de venda (SP4 4.1): UN, KG, G, L, ML, CX, PCT, DZ, M. Servidor antigo não manda ⇒ UN.
+  final String unit;
+
+  /// URL da foto do produto (SP4 4.1); sem internet a tela mostra só o nome.
+  final String? imageUrl;
+
+  final bool isPerishable;
+
   /// false = produto arquivado (tombstone do sync — SP1, 6.2). O banco local só guarda ativos.
   final bool isActive;
 
@@ -14,8 +22,16 @@ class Product {
     required this.name,
     required this.unitPrice,
     this.sku,
+    this.unit = 'UN',
+    this.imageUrl,
+    this.isPerishable = false,
     this.isActive = true,
   });
+
+  static const fractionalUnits = {'KG', 'G', 'L', 'ML', 'M'};
+
+  /// Quantidade da perda pode ter casas decimais (0,850 kg).
+  bool get isFractional => fractionalUnits.contains(unit);
 
   factory Product.fromApiJson(Map<String, dynamic> json) {
     return Product(
@@ -24,6 +40,9 @@ class Product {
       sku: json['sku'] as String?,
       name: json['name'] as String,
       unitPrice: double.tryParse(json['unitPrice'].toString()) ?? 0,
+      unit: json['unit'] as String? ?? 'UN',
+      imageUrl: json['imageUrl'] as String?,
+      isPerishable: json['isPerishable'] as bool? ?? false,
       isActive: json['isActive'] as bool? ?? true,
     );
   }
@@ -35,6 +54,9 @@ class Product {
       sku: map['sku'] as String?,
       name: map['name'] as String,
       unitPrice: (map['unitPrice'] as num).toDouble(),
+      unit: map['unit'] as String? ?? 'UN',
+      imageUrl: map['imageUrl'] as String?,
+      isPerishable: (map['isPerishable'] as int? ?? 0) == 1,
     );
   }
 
@@ -45,6 +67,9 @@ class Product {
       'sku': sku,
       'name': name,
       'unitPrice': unitPrice,
+      'unit': unit,
+      'imageUrl': imageUrl,
+      'isPerishable': isPerishable ? 1 : 0,
     };
   }
 }
