@@ -315,4 +315,19 @@ Conflito: se o PLU já estiver ativo em outro produto, o app avisa e não troca 
 
 ## 13. Menores abertos
 
-(vazio — preencher durante a execução)
+**Etapa 4.1 (concluída em 2026-09-29)** — divergências em relação a este desenho:
+- Importação: o separador de níveis da categoria é só ">" (o "/" faz parte do nome, ex. "Frios/Laticínios"); ">" é
+  proibido em nome de categoria.
+- Importação reativa categoria/marca/fornecedor arquivado só quando a linha muda aquele campo, com aviso
+  `*_WILL_BE_REACTIVATED` na simulação; "Validade" sozinha não é ligada automaticamente aos dias.
+- Handlers de importação só de categorias/marcas/fornecedores ficaram de fora (a importação de produtos cria o que falta).
+- Foto do produto: reduzida no navegador (lado maior 800 px, JPEG com fundo branco); não há recusa por tamanho no painel.
+
+Menores abertos da 4.1 (revisão final):
+- Nome só com espaços em categoria/marca/fornecedor dá 500 (falta trim no DTO).
+- API aceita criar/mover categoria para dentro de pai arquivado (o painel já filtra).
+- Filtros e coluna Categoria da lista de produtos não marcam "(arquivada)".
+- Dashboard sem o aviso "usa a categoria/fornecedor atual do produto" nas abas novas.
+- Texto do diálogo de arquivar fica no feminino também para fornecedor.
+- Foto no app sem cache em disco (`Image.network`): offline, depois de reabrir o app, some (volta o ícone).
+- Histórico mostra "Categoria pai: alterado" também na criação.
