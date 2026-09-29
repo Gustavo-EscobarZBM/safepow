@@ -17,7 +17,33 @@ export interface Product {
   unitPrice: string | number;
   costPrice: string | number;
   isActive: boolean;
+  // Dados de catálogo (SP4 4.1) — opcionais para respostas antigas/testes.
+  categoryId?: string | null;
+  categoryPath?: string | null;
+  brandId?: string | null;
+  brandName?: string | null;
+  supplierId?: string | null;
+  supplierName?: string | null;
+  unit?: ProductUnit;
+  isPerishable?: boolean;
+  shelfLifeDays?: number | null;
+  imageUrl?: string | null;
+  notes?: string | null;
 }
+
+export const PRODUCT_UNITS = ['UN', 'KG', 'G', 'L', 'ML', 'CX', 'PCT', 'DZ', 'M'] as const;
+export type ProductUnit = (typeof PRODUCT_UNITS)[number];
+export const PRODUCT_UNIT_LABELS: Record<ProductUnit, string> = {
+  UN: 'Unidade (UN)',
+  KG: 'Quilo (KG)',
+  G: 'Grama (G)',
+  L: 'Litro (L)',
+  ML: 'Mililitro (ML)',
+  CX: 'Caixa (CX)',
+  PCT: 'Pacote (PCT)',
+  DZ: 'Dúzia (DZ)',
+  M: 'Metro (M)',
+};
 
 /** Taxonomias do catálogo (SP4 4.1). Arquivadas continuam ligadas aos produtos. */
 export interface Brand {

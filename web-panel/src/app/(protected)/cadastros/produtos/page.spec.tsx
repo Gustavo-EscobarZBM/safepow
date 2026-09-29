@@ -281,7 +281,7 @@ describe('ProductsPage — cadastro de código de produto arquivado (etapa 1.3)'
     expect((api.patch as Mock).mock.calls[0]).toEqual(['products/p-z/restore']);
     expect((api.patch as Mock).mock.calls[1]).toEqual([
       'products/p-z',
-      { barcode: '999', name: 'Macarrão', unitPrice: 7.5, costPrice: undefined },
+      expect.objectContaining({ barcode: '999', name: 'Macarrão', unitPrice: 7.5, costPrice: undefined }),
     ]);
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: 'Reativar e atualizar os dados' })).not.toBeInTheDocument(),
@@ -411,6 +411,64 @@ describe('ProductsPage — correção retroativa (SP2, 2.3)', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Corrigir valores de perdas passadas' }));
 
     expect(await screen.findByRole('heading', { name: 'Corrigir valores de perdas passadas' })).toBeInTheDocument();
-    expect(screen.getByLabelText('Preço unitário (R$)')).toHaveValue(12);
+    const retroFix = screen.getByRole('dialog', { name: 'Corrigir valores de perdas passadas' });
+    expect(within(retroFix).getByLabelText('Preço unitário (R$)')).toHaveValue(12);
+  });
+});
+
+describe('ProductsPage — dados de catálogo (SP4 4.1)', () => {
+  const TAXONOMY_ROUTES: Record<string, unknown> = {
+    'categories?includeArchived=true': [{ id: 'c1', name: 'Mercearia', parentId: null, path: 'Mercearia', isActive: true }],
+    'brands?includeArchived=true': [{ id: 'b1', name: 'Coca-Cola', isActive: true }],
+    'suppliers?includeArchived=true': [],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (api.get as Mock).mockImplementation(async (path: string) => {
+      if (path in TAXONOMY_ROUTES) return TAXONOMY_ROUTES[path];
+      if (path.startsWith('products/search')) return searchResult(products);
+      throw new Error(`unexpected path: ${path}`);
+    });
+  });
+
+  it('filtro de categoria vai para a busca', async () => {
+    render(<ProductsPage />);
+    await screen.findByText('Arroz 5kg');
+    await userEvent.selectOptions(screen.getByLabelText('Filtrar por categoria'), 'c1');
+    await waitFor(() =>
+      expect((api.get as Mock).mock.calls.some(([path]) => String(path).includes('categoryId=c1'))).toBe(true),
+    );
+  });
+
+  it('cadastro envia categoria, marca e unidade', async () => {
+    (api.post as Mock).mockResolvedValue({});
+    render(<ProductsPage />);
+    await screen.findByText('Arroz 5kg');
+    await userEvent.type(screen.getByLabelText('Código de barras', { selector: '#novo-barcode' }), '789');
+    await userEvent.type(screen.getByLabelText('Nome', { selector: '#novo-name' }), 'Refri');
+    await userEvent.selectOptions(screen.getByLabelText('Categoria', { selector: '#novo-categoryId' }), 'c1');
+    await userEvent.selectOptions(screen.getByLabelText('Marca', { selector: '#novo-brandId' }), 'b1');
+    await userEvent.selectOptions(screen.getByLabelText('Unidade', { selector: '#novo-unit' }), 'KG');
+    await userEvent.click(screen.getByRole('button', { name: 'Cadastrar produto' }));
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        'products',
+        expect.objectContaining({ barcode: '789', name: 'Refri', categoryId: 'c1', brandId: 'b1', unit: 'KG' }),
+      ),
+    );
+  });
+
+  it('lista mostra a unidade e a categoria', async () => {
+    (api.get as Mock).mockImplementation(async (path: string) => {
+      if (path in TAXONOMY_ROUTES) return TAXONOMY_ROUTES[path];
+      if (path.startsWith('products/search'))
+        return searchResult([{ ...products[0], unit: 'KG', categoryPath: 'Mercearia' } as (typeof products)[number]]);
+      throw new Error(`unexpected path: ${path}`);
+    });
+    render(<ProductsPage />);
+    const row = await screen.findByRole('row', { name: /Arroz 5kg/ });
+    expect(within(row).getByText('KG')).toBeInTheDocument();
+    expect(within(row).getByText('Mercearia')).toBeInTheDocument();
   });
 });
