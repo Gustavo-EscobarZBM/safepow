@@ -77,6 +77,16 @@ export function productSnapshot(product: Product): Record<string, unknown> {
     unitPrice: String(product.unitPrice),
     costPrice: String(product.costPrice),
     isActive: product.isActive,
+    // Campos de catálogo (SP4 4.1): o painel manda todos no PATCH; sem eles aqui, o pedido de aprovação mostraria
+    // "Unidade: — → UN" como se mudasse.
+    categoryId: product.categoryId ?? null,
+    brandId: product.brandId ?? null,
+    supplierId: product.supplierId ?? null,
+    unit: product.unit,
+    isPerishable: product.isPerishable,
+    shelfLifeDays: product.shelfLifeDays ?? null,
+    imageUrl: product.imageUrl ?? null,
+    notes: product.notes ?? null,
   };
 }
 

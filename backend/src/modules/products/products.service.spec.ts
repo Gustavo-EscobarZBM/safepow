@@ -1,7 +1,7 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { tenantStorage } from '../../common/tenant/tenant-storage';
 import { UserRole } from '../users/user.entity';
-import { ProductsService } from './products.service';
+import { ProductsService, productSnapshot } from './products.service';
 
 const COMPANY_ID = 'company-1';
 
@@ -167,5 +167,36 @@ describe('ProductsService.update — conflito de código de barras (etapa 1.3)',
 
     expect(error).toBeInstanceOf(ConflictException);
     expect(error.getResponse()).toMatchObject({ errorCode: 'PRODUCT_BARCODE_EXISTS' });
+  });
+});
+
+describe('productSnapshot — campos de catálogo (SP4 4.1)', () => {
+  it('inclui os campos que o painel manda no PATCH, para o pedido de aprovação não mostrar mudança falsa', () => {
+    const snapshot = productSnapshot({
+      barcode: '1',
+      name: 'Queijo',
+      sku: null,
+      unitPrice: 10,
+      costPrice: 6,
+      isActive: true,
+      categoryId: 'c1',
+      brandId: null,
+      supplierId: 's1',
+      unit: 'KG',
+      isPerishable: true,
+      shelfLifeDays: 15,
+      imageUrl: null,
+      notes: null,
+    } as never);
+    expect(snapshot).toMatchObject({
+      categoryId: 'c1',
+      brandId: null,
+      supplierId: 's1',
+      unit: 'KG',
+      isPerishable: true,
+      shelfLifeDays: 15,
+      imageUrl: null,
+      notes: null,
+    });
   });
 });

@@ -85,6 +85,16 @@ describe('AuditController (HTTP)', () => {
     expect(body.items.map((i: { action: string }) => i.action)).toEqual(['update', 'create']);
   });
 
+  it('filtra por categoria, marca e fornecedor (gaveta Histórico das telas do SP4 4.1)', async () => {
+    const [cat] = await adminQuery(`INSERT INTO categories ("companyId", name) VALUES ($1, 'Mercearia') RETURNING id`, [companyId]);
+    const { status, body } = await get(baseUrl, `/api/audit?entityType=category&entityId=${cat.id}`, managerToken);
+    expect(status).toBe(200);
+    expect(body.items).toEqual([expect.objectContaining({ entityType: 'category', action: 'create', entityLabel: 'Mercearia' })]);
+    for (const entityType of ['brand', 'supplier']) {
+      expect((await get(baseUrl, `/api/audit?entityType=${entityType}`, managerToken)).status).toBe(200);
+    }
+  });
+
   it('filtra por ação e período', async () => {
     const { body } = await get(baseUrl, '/api/audit?action=create&from=2000-01-01T00:00:00Z&to=2999-01-01T00:00:00Z', managerToken);
     expect(body.items.every((i: { action: string }) => i.action === 'create')).toBe(true);
