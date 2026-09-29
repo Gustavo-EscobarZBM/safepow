@@ -17,9 +17,15 @@ mobile_app/.flutter-plugins-dependencies
 mobile_app/build/
 mobile_app/.idea/
 mobile_app/*.iml
-# Gerado por `flutter create .` de forma consistente com o SDK de cada
-# máquina (ver mobile_app/README.md) — não faz parte do código-fonte do app.
-mobile_app/android/
+# android/ é versionado (tem o nome do app, permissões e HTTP liberado para o backend local); só o que é
+# específico da máquina ou gerado fica fora. ios/ continua gerado por `flutter create .` (ver README).
+mobile_app/android/local.properties
+mobile_app/android/.gradle/
+mobile_app/android/.kotlin/
+mobile_app/android/app/.cxx/
+mobile_app/android/**/build/
+mobile_app/android/*.iml
+mobile_app/android/**/GeneratedPluginRegistrant.java
 mobile_app/ios/
 
 # Geral
@@ -29,3 +35,10 @@ Thumbs.db
 # Estado local do Claude Code (trava de tarefas agendadas) — muda a cada
 # sessão nesta máquina, não é configuração do projeto.
 .claude/scheduled_tasks.lock
+
+# Iniciador (INICIAR PROJETO.bat): logs de execução
+SAFEPOW-logs/
+
+# Estado local de ferramentas desta máquina
+.claude/settings.local.json
+.superpowers/

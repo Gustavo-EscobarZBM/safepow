@@ -10,6 +10,7 @@
     "migration:run": "npm run typeorm -- migration:run -d src/database/data-source.ts",
     "migration:generate": "npm run typeorm -- migration:generate -d src/database/data-source.ts",
     "seed": "ts-node -r tsconfig-paths/register src/database/seed.ts",
+    "seed:demo": "ts-node -r tsconfig-paths/register src/database/seed-demo.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:int": "jest --config jest.integration.config.js"

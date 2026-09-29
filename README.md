@@ -6,8 +6,11 @@ gestão pelo painel web, e um backend multi-tenant por trás dos dois.
 
 ## Como rodar
 
-Cada parte tem o passo a passo no próprio README (links na tabela abaixo): backend (Docker Compose com
-Postgres, Redis e MinIO), painel web e app mobile.
+- **Instalar num computador Windows novo (do zero, com Docker e emulador):** siga
+  [INSTALACAO.md](./INSTALACAO.md) — depois, `INSTALAR PROJETO.bat` uma vez.
+- **Dia a dia:** `INICIAR PROJETO.bat` (sobe Docker, backend, painel em http://localhost:3001 e o app no
+  emulador) e `PARAR PROJETO.bat`.
+- Detalhes de cada parte no próprio README (links na tabela abaixo).
 
 ## Estrutura do repositório
 

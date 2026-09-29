@@ -31,7 +31,7 @@ function redirectPathForRole(role: SessionUser['role']) {
 const QUICK_LOGIN_ENABLED = process.env.NODE_ENV !== 'production';
 const QUICK_LOGINS = [
   { role: 'master_admin' as const, label: 'Administrador Master', email: 'master@seusistema.com.br', password: 'troque-esta-senha' },
-  { role: 'manager' as const, label: 'Gerente', email: 'gerente.demo@safepow.com', password: 'demo1234' },
+  { role: 'manager' as const, label: 'Gerente', email: 'gerente.demo@safepow.com', password: '123456' },
   { role: 'employee' as const, label: 'Funcionário', email: 'funcionario.demo@safepow.com', password: 'demo1234' },
 ];
 
