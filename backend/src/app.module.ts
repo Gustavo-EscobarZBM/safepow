@@ -9,6 +9,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
+import { HealthController } from './health.controller';
 import { ENTITIES } from './database/entities';
 import { CompaniesModule } from './modules/companies/companies.module';
 import { ImportsModule } from './modules/imports/imports.module';
@@ -21,6 +22,7 @@ import { UploadsModule } from './modules/uploads/uploads.module';
 import { UsersModule } from './modules/users/users.module';
 
 @Module({
+  controllers: [HealthController],
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
 

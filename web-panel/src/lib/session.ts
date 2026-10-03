@@ -14,17 +14,20 @@ const USER_COOKIE = `${TOKEN_COOKIE}_user`;
 export function setSessionCookies(accessToken: string, user: SessionUser) {
   const store = cookies();
   const maxAge = 60 * 60 * 8; // 8h — deve bater com JWT_EXPIRES_IN do backend
+  const secure = process.env.SESSION_COOKIE_SECURE === 'false'
+    ? false
+    : process.env.SESSION_COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production';
 
   store.set(TOKEN_COOKIE, accessToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure,
     sameSite: 'lax',
     path: '/',
     maxAge,
   });
   store.set(USER_COOKIE, JSON.stringify(user), {
     httpOnly: false,
-    secure: process.env.NODE_ENV === 'production',
+    secure,
     sameSite: 'lax',
     path: '/',
     maxAge,

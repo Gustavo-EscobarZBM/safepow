@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- APK local: o IP do servidor Wi-Fi varia conforme a rede do computador.
+     Este recurso substitui o de main somente nas compilacoes debug. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

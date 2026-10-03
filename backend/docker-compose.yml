@@ -1,100 +1,142 @@
-version: "3.9"
+name: backend
+
+x-app-environment: &app-environment
+  NODE_ENV: production
+  PORT: 3000
+  DB_HOST: postgres
+  DB_PORT: 5432
+  DB_NAME: ${DB_NAME:-inventory_saas}
+  DB_ADMIN_USER: ${DB_ADMIN_USER:-postgres}
+  DB_ADMIN_PASSWORD: ${DB_ADMIN_PASSWORD:-postgres_admin_local_only}
+  DB_APP_USER: ${DB_APP_USER:-inventory_saas_app}
+  DB_APP_PASSWORD: ${DB_APP_PASSWORD:-change-me-app-role-password}
+  DB_SSL: "false"
+  JWT_SECRET: ${JWT_SECRET:?Execute SAFEPOW.bat (opcao Iniciar) para preparar backend/.env}
+  JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-8h}
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  STORAGE_ENDPOINT: http://minio:9000
+  STORAGE_REGION: ${STORAGE_REGION:-us-east-1}
+  STORAGE_BUCKET: ${STORAGE_BUCKET:-inventory-saas-uploads}
+  STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-minioadmin}
+  STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-minioadmin123}
+  STORAGE_PUBLIC_BASE_URL: ${STORAGE_PUBLIC_BASE_URL:-http://localhost:9000/inventory-saas-uploads}
+  STORAGE_FORCE_PATH_STYLE: "true"
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+  MASTER_ADMIN_EMAIL: ${MASTER_ADMIN_EMAIL:-master@seusistema.com.br}
+  MASTER_ADMIN_PASSWORD: ${MASTER_ADMIN_PASSWORD:-troque-esta-senha}
+  SAFEPOW_SEED_DEMO: ${SAFEPOW_SEED_DEMO:-false}
 
 services:
   postgres:
     image: postgres:16
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres_admin_local_only
-      POSTGRES_DB: inventory_saas
+      POSTGRES_USER: ${DB_ADMIN_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:-postgres_admin_local_only}
+      POSTGRES_DB: ${DB_NAME:-inventory_saas}
     ports:
       # 5433, não 5432: esta máquina tem um PostgreSQL nativo do Windows
       # (serviço) ocupando a 5432 — conexões do host pra 5432 caem nele por
       # engano, não no container. A comunicação entre containers (backend ->
       # postgres) usa a porta interna 5432 normalmente, só o mapeamento pro
       # host muda.
-      - "5433:5432"
+      - "127.0.0.1:${DB_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Cria automaticamente o role de runtime restrito na primeira inicialização
-      # do volume (ver comentários no próprio arquivo) — Seção 1.2 do documento.
-      - ./docker/init-db:/docker-entrypoint-initdb.d
+      # O servico setup cria o role restrito antes das migrations, inclusive em volumes novos.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 5s
       retries: 10
 
   minio:
-    image: minio/minio:latest
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin123
+      MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_KEY:-minioadmin123}
     ports:
-      - "9000:9000"   # API S3-compatível
-      - "9001:9001"   # console web
+      - "${STORAGE_BIND_ADDRESS:-127.0.0.1}:${STORAGE_PORT:-9000}:9000"
+      - "127.0.0.1:${STORAGE_CONSOLE_PORT:-9001}:9001"
     volumes:
       - minio_data:/data
 
   minio-init:
-    image: minio/mc:latest
+    image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z
     depends_on:
       - minio
+    environment:
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-minioadmin}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-minioadmin123}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-inventory-saas-uploads}
     entrypoint: >
-      /bin/sh -c "
-      until mc alias set local http://minio:9000 minioadmin minioadmin123; do sleep 1; done;
-      mc mb --ignore-existing local/inventory-saas-uploads;
-      mc anonymous set download local/inventory-saas-uploads;
-      "
+      /bin/sh -ec '
+      attempts=0;
+      until mc alias set local http://minio:9000 "$$STORAGE_ACCESS_KEY" "$$STORAGE_SECRET_KEY"; do
+        attempts=$$((attempts + 1)); [ "$$attempts" -lt 60 ] || exit 1; sleep 2;
+      done;
+      mc mb --ignore-existing "local/$$STORAGE_BUCKET";
+      mc anonymous set download "local/$$STORAGE_BUCKET";
+      '
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  setup:
+    build: .
+    image: safepow-api:local
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *app-environment
+    command: ["node", "docker/setup.cjs"]
 
   backend:
     build: .
+    image: safepow-api:local
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
-      minio:
-        condition: service_started
-    environment:
-      NODE_ENV: development
-      PORT: 3000
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: inventory_saas
-      DB_ADMIN_USER: postgres
-      DB_ADMIN_PASSWORD: postgres_admin_local_only
-      DB_APP_USER: inventory_saas_app
-      DB_APP_PASSWORD: change-me-app-role-password
-      DB_SSL: "false"
-      JWT_SECRET: troque-este-valor-por-um-segredo-forte-em-producao
-      JWT_EXPIRES_IN: 8h
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      STORAGE_ENDPOINT: http://minio:9000
-      STORAGE_REGION: us-east-1
-      STORAGE_BUCKET: inventory-saas-uploads
-      STORAGE_ACCESS_KEY: minioadmin
-      STORAGE_SECRET_KEY: minioadmin123
-      STORAGE_PUBLIC_BASE_URL: http://localhost:9000/inventory-saas-uploads
-      STORAGE_FORCE_PATH_STYLE: "true"
-      STRIPE_SECRET_KEY: ""
-      STRIPE_WEBHOOK_SECRET: ""
-      MASTER_ADMIN_EMAIL: master@seusistema.com.br
-      MASTER_ADMIN_PASSWORD: troque-esta-senha
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      setup:
+        condition: service_completed_successfully
+    environment: *app-environment
     ports:
-      - "3000:3000"
+      - "${API_BIND_ADDRESS:-127.0.0.1}:${PORT:-3000}:3000"
+    networks:
+      default:
+      clients:
+        aliases:
+          - safepow-api
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(async r=>{const b=await r.json();process.exit(r.ok && b.service==='safepow-api' && b.status==='ok'?0:1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 20s
 
 volumes:
   postgres_data:
   minio_data:
+
+networks:
+  clients:
+    external: true
+    name: safepow-local

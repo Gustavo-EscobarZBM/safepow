@@ -8,11 +8,13 @@ backend/*.log
 web-panel/node_modules/
 web-panel/.next/
 web-panel/.env.local
+web-panel/.env.docker
 web-panel/tsconfig.tsbuildinfo
 web-panel/*.log
 
 # Mobile app (Flutter)
 mobile_app/.dart_tool/
+mobile_app/env.local.json
 mobile_app/.flutter-plugins-dependencies
 mobile_app/build/
 mobile_app/.idea/
@@ -36,8 +38,9 @@ Thumbs.db
 # sessão nesta máquina, não é configuração do projeto.
 .claude/scheduled_tasks.lock
 
-# Iniciador (INICIAR PROJETO.bat): logs de execução
+# Iniciador (SAFEPOW.bat): logs de execução
 SAFEPOW-logs/
+SAFEPOW-backups/
 
 # Estado local de ferramentas desta máquina
 .claude/settings.local.json
