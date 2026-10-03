@@ -1,5 +1,26 @@
 # App Mobile — Sistema de Controle de Perdas de Estoque
 
+## Conexão local independente
+
+O app acessa diretamente a API e não depende do painel web. Na raiz, **SAFEPOW.bat → 9** configura
+Wi-Fi ou USB e grava `mobile_app/env.local.json`. Depois use **7** para aplicar a configuração da API
+e **4** para compilar/instalar o app no dispositivo.
+
+No Wi-Fi, computador e celular precisam estar na mesma rede. O USB é necessário apenas para instalar/depurar;
+depois o app instalado pode usar a API pelo IP do computador. Se esse IP mudar, configure e compile novamente.
+No modo USB, o script usa `adb reverse` e o cabo precisa permanecer conectado para sincronizar.
+
+Para gerar um APK de desenvolvimento, use **SAFEPOW.bat → 10 — Gerar APK**.
+Não precisa conectar celular nem iniciar a API. O script detecta o Flutter e utiliza `env.local.json`.
+O arquivo gerado fica em `build/app/outputs/flutter-apk/app-debug.apk`.
+Comando manual equivalente, nesta pasta:
+
+```powershell
+flutter build apk --debug --dart-define-from-file=env.local.json
+```
+
+Guia de rede/firewall e instalação: [INSTALACAO.md](../INSTALACAO.md).
+
 Implementa a funcionalidade 1 do documento de arquitetura: registro de perdas
 via leitura de código de barras ou digitação manual, com funcionamento
 **offline-first** e sincronização automática (Seção 4 do documento).

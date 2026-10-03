@@ -12,15 +12,19 @@ JWT para autenticação.
 
 ## Como rodar localmente
 
+Pelo menu da raiz: **SAFEPOW.bat → 7 — Somente API**. Banco, Redis, arquivos, migrations e seed ficam
+neste projeto Compose; o painel tem seu próprio Compose em `web-panel/`. Configuração: `backend/.env`.
+Os projetos se comunicam pela rede externa `safepow-local`, criada pelo menu.
+Para acesso do app pelo Wi-Fi, use a opção 9. Veja [INSTALACAO.md](../INSTALACAO.md).
+
 Pré-requisito: Docker e Docker Compose instalados.
 
 ```bash
 cp .env.example .env
 # Ajuste os segredos em .env antes de qualquer uso além de desenvolvimento local.
 
-docker compose up -d          # sobe Postgres, Redis e o backend
-docker compose exec backend npm run migration:run   # cria as tabelas e a RLS
-docker compose exec backend npm run seed            # cria o usuário master admin
+docker network create safepow-local # uma vez, se a rede ainda não existir
+docker compose up -d --build        # setup prepara banco/seed antes da API
 ```
 
 A API fica disponível em `http://localhost:3000/api`.

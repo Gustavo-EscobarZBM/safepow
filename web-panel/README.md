@@ -20,6 +20,13 @@ fala diretamente com a API do backend nem vê o token JWT.
 
 ## Como rodar localmente
 
+**Docker independente:** use **SAFEPOW.bat → 8 — Somente painel** na raiz. O painel tem seu próprio
+`docker-compose.yml` e lê `web-panel/.env.docker` (modelo em `.env.docker.example`). Dentro do Docker,
+`BACKEND_URL=http://safepow-api:3000/api`; a rede `safepow-local` é compartilhada com a API e criada pelo menu.
+O painel pode iniciar sozinho, mas login/dados exigem que a API esteja ligada (opção 7).
+
+Os comandos abaixo são a alternativa de desenvolvimento com Node fora do Docker:
+
 Pré-requisito: o backend (`../backend`) já rodando (`docker compose up`, ver
 o README dele) — por padrão em `http://localhost:3000/api`.
 

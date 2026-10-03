@@ -1,4 +1,5 @@
-# Windows PowerShell 5.1. Coloque junto das pastas backend, web-panel e mobile_app.
+# Android opcional: execute depois de SAFEPOW.bat (opcao Iniciar).
+param([switch]$SemPausa, [switch]$GerarApk)
 $ErrorActionPreference = 'Stop'
 function Wait-Until([scriptblock]$Check, [int]$Seconds, [string]$Message) {
     $end = (Get-Date).AddSeconds($Seconds)
@@ -25,6 +26,10 @@ function Start-BackgroundService([string]$Name, [string]$Folder, [string]$Comman
         $previous = Get-Content -LiteralPath $state -Raw | ConvertFrom-Json
         $existing = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$previous.pid)" -ErrorAction SilentlyContinue
         if ($existing -and $existing.CommandLine -like ('*' + $previous.token + '*')) {
+            $previousCode = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($previous.token))
+            if (-not $previousCode.Contains($Command)) {
+                throw 'Ja existe um app iniciado com outra configuracao. Escolha 5 > Apenas app Android e depois 4 novamente.'
+            }
             return (Get-Process -Id $previous.pid)
         }
     }
@@ -34,6 +39,31 @@ function Start-BackgroundService([string]$Name, [string]$Folder, [string]$Comman
     $proc = Start-Process powershell.exe -WindowStyle Hidden -PassThru -ArgumentList @('-NoProfile', '-EncodedCommand', $encoded)
     @{ pid = $proc.Id; token = $encoded } | ConvertTo-Json | Set-Content -LiteralPath $state -Encoding UTF8
     return $proc
+}
+function Wait-MobileLaunch([System.Diagnostics.Process]$Process, [string]$LogPath) {
+    Write-Host 'Compilando e instalando o app. Na primeira vez os downloads podem demorar.' -ForegroundColor Cyan
+    Write-Host 'Mantenha o celular conectado e desbloqueado. Autorize a instalacao se ele solicitar.'
+    $deadline = (Get-Date).AddMinutes(20)
+    $seen = 0
+    $lastNotice = Get-Date
+    do {
+        $lines = @(Get-Content -LiteralPath $LogPath -ErrorAction SilentlyContinue)
+        if ($lines.Count -lt $seen) { $seen = 0 }
+        for ($i = $seen; $i -lt $lines.Count; $i++) { Write-Host $lines[$i] }
+        $seen = $lines.Count
+        $Process.Refresh()
+        if ($Process.HasExited) { throw "A inicializacao do app terminou antes da confirmacao. Confira o erro acima ou $LogPath." }
+        if (($lines -join "`n") -match 'A Dart VM Service on .+ is available at:') {
+            Write-Host 'App iniciado no Android. O menu pode ser usado novamente.' -ForegroundColor Green
+            return
+        }
+        if (((Get-Date) - $lastNotice).TotalSeconds -ge 30) {
+            Write-Host 'Ainda aguardando compilacao/instalacao... (o app ainda nao foi confirmado no celular)' -ForegroundColor Yellow
+            $lastNotice = Get-Date
+        }
+        Start-Sleep -Seconds 2
+    } while ((Get-Date) -lt $deadline)
+    throw "O app ainda nao confirmou a inicializacao apos 20 minutos. O processo continua em segundo plano; acompanhe $LogPath e confira sua conexao."
 }
 function Http-Ready([string]$Url, [bool]$AllowClientError = $false) {
     try {
@@ -48,19 +78,16 @@ function Http-Ready([string]$Url, [bool]$AllowClientError = $false) {
     }
 }
 try {
-    $root = $PSScriptRoot
+    $root = Split-Path -Parent $PSScriptRoot
     $logDir = Join-Path $root 'SAFEPOW-logs'
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
-    foreach ($part in @('backend', 'web-panel', 'mobile_app')) {
+    foreach ($part in @('mobile_app')) {
         if (-not (Test-Path -LiteralPath (Join-Path $root $part) -PathType Container)) {
             throw 'Extraia os arquivos na pasta safepow, junto das pastas backend, web-panel e mobile_app.'
         }
     }
     # Inclui alteracoes recentes do PATH sem exigir reiniciar o Explorer.
     $env:Path = $env:Path + ';' + [Environment]::GetEnvironmentVariable('Path', 'User') + ';' + [Environment]::GetEnvironmentVariable('Path', 'Machine')
-    foreach ($tool in @('docker', 'npm.cmd')) {
-        if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) { throw "$tool nao encontrado no PATH. Use o mesmo ambiente em que os comandos ja funcionam." }
-    }
     # Usa os SDKs que o proprio projeto utilizou na compilacao anterior.
     $localProps = @{}
     $propsPath = Join-Path $root 'mobile_app\android\local.properties'
@@ -85,7 +112,7 @@ try {
         $fromProject = Join-Path $localProps['flutter.sdk'] 'bin\flutter.bat'
         if (Test-Path -LiteralPath $fromProject -PathType Leaf) { $flutter = $fromProject }
     }
-    $configPath = Join-Path $root 'SAFEPOW-iniciador.config.json'
+    $configPath = Join-Path $logDir 'flutter.config.json'
     if (-not $flutter -and (Test-Path -LiteralPath $configPath)) {
         try {
             $saved = (Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json).flutterPath
@@ -139,40 +166,61 @@ try {
         @{ flutterPath = $flutter } | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding UTF8
     } catch { Write-Host 'Nao foi possivel salvar a escolha. Ela vale apenas para esta execucao.' }
     Write-Host "Flutter localizado: $flutter"
-    Write-Host '1/4 - Iniciando Docker...' -ForegroundColor Cyan
-    & docker info *> $null
-    if ($LASTEXITCODE -ne 0) {
-        $dockerApp = @("$env:ProgramFiles\Docker\Docker\Docker Desktop.exe", "$env:LOCALAPPDATA\Programs\DockerDesktop\Docker Desktop.exe") | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-        if (-not $dockerApp) { throw 'Docker Desktop nao localizado. Abra-o manualmente e execute este iniciador novamente.' }
-        Start-Process -FilePath $dockerApp
-        Wait-Until { & docker info *> $null; $LASTEXITCODE -eq 0 } 240 'Docker nao ficou pronto em 4 minutos. Confira a janela do Docker Desktop.'
-    }
-    Write-Host '2/4 - Iniciando backend...' -ForegroundColor Cyan
-    Push-Location -LiteralPath (Join-Path $root 'backend')
-    try {
-        # --build: remonta o backend com o codigo atual (sem isso o container roda a imagem antiga).
-        & docker compose up -d --build
-        if ($LASTEXITCODE -ne 0) { throw 'Falha ao iniciar os containers. Confira o erro acima.' }
-    } finally { Pop-Location }
-    Wait-Until { Http-Ready 'http://localhost:3000/api' $true } 180 'API nao respondeu na porta 3000. Confira os logs do backend no Docker Desktop.'
-    Write-Host '3/4 - Iniciando painel web...' -ForegroundColor Cyan
-    if (-not (Http-Ready 'http://localhost:3001')) {
-        $listener = @(Get-NetTCPConnection -State Listen -LocalPort 3001 -ErrorAction SilentlyContinue)
-        if ($listener.Count -gt 0) {
-            Write-Host 'Porta 3001 ocupada; aguardando o painel existente responder...'
-        } else {
-            $webProcess = Start-BackgroundService 'painel' (Join-Path $root 'web-panel') '& npm.cmd run dev'
+    $appEnvPath = Join-Path $root 'mobile_app\env.local.json'
+    if (-not (Test-Path -LiteralPath $appEnvPath)) { throw 'Configure a conexao do app na opcao 9 do menu (Wi-Fi ou USB).' }
+    $appEnv = Get-Content -LiteralPath $appEnvPath -Raw | ConvertFrom-Json
+    $apiUri = $null
+    if (-not [Uri]::TryCreate($appEnv.API_BASE_URL, [UriKind]::Absolute, [ref]$apiUri) -or $apiUri.Scheme -notin @('http', 'https') -or $apiUri.UserInfo) { throw 'API_BASE_URL invalida em mobile_app\env.local.json.' }
+    $mode = $appEnv.CONNECTION_MODE
+    if ($mode -notin @('wifi', 'usb')) { throw 'CONNECTION_MODE deve ser wifi ou usb em mobile_app\env.local.json.' }
+    $apiBase = $appEnv.API_BASE_URL.TrimEnd('/')
+    $apiPort = $apiUri.Port
+    $storagePort = if ($appEnv.STORAGE_PORT) { [int]$appEnv.STORAGE_PORT } else { 9000 }
+    if ($mode -eq 'usb' -and -not $apiUri.IsLoopback) { throw 'No modo USB use 127.0.0.1 ou localhost como endereco da API.' }
+    if ($GerarApk) {
+        Write-Host "Gerando APK de desenvolvimento | API: $apiBase" -ForegroundColor Cyan
+        Write-Host 'Nao precisa conectar celular nem iniciar Docker/API para compilar.'
+        if ($mode -eq 'usb') {
+            Write-Host 'Configuracao USB: este APK exige encaminhamento por cabo para acessar a API. Para Wi-Fi, use a opcao 9 antes de gerar.' -ForegroundColor Yellow
         }
-        Wait-Until { Http-Ready 'http://localhost:3001' } 180 'Painel nao respondeu em http://localhost:3001. Confira SAFEPOW-logs\painel.log e se a porta esta ocupada por outro programa.'
+        $apkLog = Join-Path $logDir ('apk-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.log')
+        $apkTranscript = $false
+        Push-Location (Join-Path $root 'mobile_app')
+        try {
+            Start-Transcript -Path $apkLog | Out-Null
+            $apkTranscript = $true
+            & $flutter build apk --debug "--dart-define-from-file=$appEnvPath"
+            if ($LASTEXITCODE -ne 0) { throw "Falha ao gerar APK. Consulte $apkLog" }
+            $apkPath = Join-Path $root 'mobile_app\build\app\outputs\flutter-apk\app-debug.apk'
+            if (-not (Test-Path -LiteralPath $apkPath -PathType Leaf)) { throw 'Flutter terminou sem gerar o APK esperado.' }
+            Write-Host "`nAPK gerado: $apkPath" -ForegroundColor Green
+            Write-Host 'Transfira este arquivo ao Android e abra para instalar/atualizar o SAFEPOW.'
+            Write-Host "API configurada: $apiBase | Log: $apkLog"
+        } finally {
+            if ($apkTranscript) { Stop-Transcript | Out-Null }
+            Pop-Location
+        }
+        if (-not $SemPausa) { Read-Host 'Pressione Enter para fechar' | Out-Null }
+        exit 0
     }
-    Start-Process 'http://localhost:3001'
-    Write-Host '4/4 - Preparando Android...' -ForegroundColor Cyan
+    if (-not (Http-Ready "$apiBase/health")) { throw "API indisponivel em $apiBase. Inicie a API (opcao 7) e confira a configuracao de rede (opcao 9)." }
+    Write-Host "Conexao do app: $mode | API: $apiBase"
+    Write-Host 'Preparando Android...' -ForegroundColor Cyan
     $adb = if ($sdk) { Join-Path $sdk 'platform-tools\adb.exe' } else { (Get-Command adb.exe -ErrorAction SilentlyContinue).Source }
     if (-not $adb) { throw 'ADB nao encontrado. Defina ANDROID_HOME com a pasta do SDK Android ou adicione platform-tools ao PATH.' }
     & $adb start-server
     if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel iniciar o ADB.' }
     function Get-AndroidDevices {
-        @(& $adb devices) | ForEach-Object { if ($_ -match '^(\S+)\s+device\s*$') { $matches[1] } }
+        $deviceLines = @(& $adb devices)
+        if ($LASTEXITCODE -ne 0) { throw 'Falha ao consultar dispositivos Android pelo ADB.' }
+        $authorized = @($deviceLines | ForEach-Object { if ($_ -match '^(\S+)\s+device\s*$') { $matches[1] } })
+        if ($authorized.Count -gt 0) { return $authorized }
+        if ($deviceLines -match '\s+unauthorized\s*$') {
+            throw 'Celular conectado mas nao autorizado. Desbloqueie a tela, aceite Permitir depuracao USB e escolha a opcao 4 novamente.'
+        }
+        if ($deviceLines -match '\s+offline\s*$') {
+            throw 'Android aparece offline. Reconecte o cabo USB, desbloqueie o celular e tente novamente.'
+        }
     }
     $devices = @(Get-AndroidDevices)
     if ($devices.Count -eq 0) {
@@ -192,16 +240,21 @@ try {
     $device = Choose-One $devices 'Qual Android deseja usar?'
     Write-Host "Aguardando Android iniciar: $device"
     Wait-Until { ((& $adb -s $device shell getprop sys.boot_completed 2>$null) -join '').Trim() -eq '1' } 240 'Android nao terminou de iniciar. Confira o dispositivo e tente novamente.'
-    # Encaminha apenas a porta da API para o computador, inclusive em celular USB.
-    & $adb -s $device reverse tcp:3000 tcp:3000
-    if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel encaminhar a porta 3000 pelo ADB. Confira a conexao com o Android.' }
-    $flutterCommand = '& ' + (Quote-PS $flutter) + ' run -d ' + (Quote-PS $device) + ' --dart-define=API_BASE_URL=http://127.0.0.1:3000/api'
+    if ($mode -eq 'usb') {
+        & $adb -s $device reverse "tcp:$apiPort" "tcp:$apiPort"
+        if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel encaminhar a porta da API pelo ADB.' }
+        & $adb -s $device reverse "tcp:$storagePort" "tcp:$storagePort"
+        if ($LASTEXITCODE -ne 0) { throw 'Nao foi possivel encaminhar a porta das imagens pelo ADB.' }
+    } else {
+        Write-Host 'O USB e usado para instalar/depurar. A comunicacao com a API usa a rede Wi-Fi.'
+    }
+    $flutterCommand = '& ' + (Quote-PS $flutter) + ' run -d ' + (Quote-PS $device) + ' ' + (Quote-PS ('--dart-define=API_BASE_URL=' + $apiBase))
     $mobileProcess = Start-BackgroundService 'mobile' (Join-Path $root 'mobile_app') $flutterCommand
-    Write-Host 'Android iniciado. O aplicativo continuara iniciando em segundo plano.' -ForegroundColor Green
+    Wait-MobileLaunch $mobileProcess (Join-Path $logDir 'mobile.log')
 } catch {
     Write-Host "`nERRO: $($_.Exception.Message)" -ForegroundColor Red
     Write-Host 'Se algum componente iniciou nesta tentativa, ele continua ativo. Copie o erro ou tire um print para diagnostico.'
-    Read-Host 'Pressione Enter para fechar'
+    if (-not $SemPausa) { Read-Host 'Pressione Enter para fechar' }
     exit 1
 }
 exit 0

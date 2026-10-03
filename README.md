@@ -6,10 +6,13 @@ gestão pelo painel web, e um backend multi-tenant por trás dos dois.
 
 ## Como rodar
 
-- **Instalar num computador Windows novo (do zero, com Docker e emulador):** siga
-  [INSTALACAO.md](./INSTALACAO.md) — depois, `INSTALAR PROJETO.bat` uma vez.
-- **Dia a dia:** `INICIAR PROJETO.bat` (sobe Docker, backend, painel em http://localhost:3001 e o app no
-  emulador) e `PARAR PROJETO.bat`.
+- Abra **[SAFEPOW.bat](./SAFEPOW.bat)** e escolha **1 — Iniciar**. A mesma opção instala e configura
+  API e painel na primeira execução. Painel: http://localhost:3001.
+- API e painel têm projetos Docker independentes: **7 — Somente API** e **8 — Somente painel**.
+- Para o app no celular, use **9 — Conexão do celular** (Wi-Fi ou USB) e depois **4 — App Android**.
+- Para gerar o arquivo APK sem conectar celular, escolha **10 — Gerar APK**.
+- **Atualizar** e **Parar** permitem escolher o componente. O menu também oferece **Diagnosticar** e **Requisitos**.
+- Guia rápido: [INSTALACAO.md](./INSTALACAO.md). Os scripts auxiliares ficam em `scripts/`.
 - Detalhes de cada parte no próprio README (links na tabela abaixo).
 
 ## Estrutura do repositório
